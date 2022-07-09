@@ -17,6 +17,14 @@ var (
 	ErrBadArgs = errors.New("option error printed")
 )
 
+type ErrBadArgsContainer struct {
+	err error
+}
+
+func (e ErrBadArgsContainer) Error() string {
+	return e.err.Error()
+}
+
 // Config defines base config prameters
 type Config struct {
 	Debug bool `long:"debug"                         description:"Show debug data"`
@@ -46,7 +54,7 @@ func Open(cfg interface{}, args ...string) (err error) {
 		if e, ok := err.(*flags.Error); ok && e.Type == flags.ErrHelp {
 			return ErrHelpRequest
 		}
-		return ErrBadArgs
+		return ErrBadArgsContainer{err}
 	}
 	return
 }
@@ -66,18 +74,18 @@ func OpenWithVersion(cfg ConfigWithVersionRequest, args ...string) (err error) {
 // Close runs exit after deferred cleanups have run
 func Close(exitFunc func(code int), e error, out io.Writer, version string) {
 	if e != nil {
-		var code int
+		code := 1
+		if _, ok := e.(ErrBadArgsContainer); ok {
+			code = 2
+		}
 		switch e {
 		case ErrHelpRequest:
-			out.Write([]byte(e.Error()))
+			// help was printed in Parse
 			code = 3
 		case ErrVersionRequest:
 			out.Write([]byte(version))
-		case ErrBadArgs:
-			code = 2
 		default:
 			out.Write([]byte(e.Error()))
-			code = 1
 		}
 		exitFunc(code)
 	}
