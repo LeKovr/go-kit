@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -20,12 +21,12 @@ import (
 
 // Config holds package options and constants
 type Config struct {
-	MyURL       string `long:"my_url" default:"http://narra.dev.lan" description:"Own host URL"`
+	MyURL       string `long:"my_url" description:"Own host URL (autodetect if empty)"`
 	CallBackURL string `long:"cb_url" default:"/login" description:"URL for Auth server's redirect"`
 
 	//nolint:staticcheck // Multiple struct tag "choice" is allowed
 	Type      string `long:"type" env:"TYPE" default:"gitea"  choice:"gitea" choice:"mmost" description:"Authorization Server type (gitea|mmost)"`
-	Do401     bool   `long:"do401" env:"DO401" description:"Do not redirect with http.StatusUnauthorized, process it itself"`
+	Do401     bool   `long:"do401" env:"DO401" description:"Do not redirect with http.StatusUnauthorized, process it"`
 	Host      string `long:"host" env:"HOST" default:"http://gitea:8080" description:"Authorization Server host"`
 	Team      string `long:"team" env:"TEAM" default:"dcape" description:"Authorization Server team which members has access to resource"`
 	ClientID  string `long:"client_id" env:"CLIENT_ID" description:"Authorization Server Client ID"`
@@ -38,6 +39,10 @@ type Config struct {
 	CookieCryptKey string `long:"cookie_crypt" env:"COOKIE_CRYPT_KEY" description:"Cookie crypt key (16, 24, or 32 bytes)"`
 
 	UserHeader string `long:"user_header" env:"USER_HEADER" default:"X-Username" description:"HTTP Response Header for username"`
+
+	BasicRealm     string `long:"basic_realm" default:"narra" description:"Basic Auth realm"`
+	BasicUser      string `long:"basic_username" default:"token" description:"Basic Auth user name"`
+	BasicUserAgent string `long:"basic_useragent" default:"docker/" description:"UserAgent which requires Basic Auth"`
 }
 
 // ProviderConfig holds Authorization Server properties
@@ -54,11 +59,13 @@ type ProviderConfig struct {
 
 // Service holds service attributes
 type Service struct {
-	Config   Config
-	api      *oauth2.Config
-	cookie   *securecookie.SecureCookie
-	cache    *cache.Cache
-	provider *ProviderConfig
+	Config        Config
+	api           *oauth2.Config
+	cookie        *securecookie.SecureCookie
+	cache         *cache.Cache
+	provider      *ProviderConfig
+	lock          sync.Mutex
+	lockableMyURL string
 }
 
 var (
@@ -69,7 +76,7 @@ var (
 	// ErrStateUnknown holds error: Unknown state
 	ErrStateUnknown = errors.New("Unknown state")
 	// ErrBasicTokenExpected holds error when username <> token
-	ErrBasicTokenExpected = errors.New("Basuc Auth username is 'token'")
+	ErrBasicTokenExpected = errors.New("Basuc Auth username does not match")
 	// ErrBasicAuthRequired holds 401 for docker client
 	ErrBasicAuthRequired = errors.New("Basuc Auth is required")
 )
@@ -77,8 +84,8 @@ var (
 // Package debug level
 var DL = 1
 
-//Functional options
-//https://github.com/tmrts/go-patterns/blob/master/idiom/functional-options.md
+// Functional options
+// https://github.com/tmrts/go-patterns/blob/master/idiom/functional-options.md
 
 // Option is a functional options return type
 type Option func(*Service)
@@ -143,17 +150,42 @@ func New(cfg Config, options ...Option) *Service {
 	if srv.provider == nil {
 		srv.provider = Providers[cfg.Type]
 	}
+	if strings.HasSuffix(srv.Config.Host, "/") {
+		// some users asked to autoremove
+		srv.Config.Host = strings.TrimSuffix(srv.Config.Host, "/")
+	}
 	srv.api = &oauth2.Config{
 		ClientID:     srv.Config.ClientID,
 		ClientSecret: srv.Config.ClientKey,
-		//Scopes:       []string{"SCOPE1", "SCOPE2"},
-		RedirectURL: srv.Config.MyURL + srv.Config.CallBackURL,
+		Scopes:       []string{srv.Config.BasicRealm},
 		Endpoint: oauth2.Endpoint{
 			TokenURL: srv.Config.Host + srv.provider.Token,
 			AuthURL:  srv.Config.Host + srv.provider.Auth,
 		},
 	}
+	if srv.Config.MyURL != "" {
+		// given in config
+		srv.api.RedirectURL = srv.Config.MyURL + srv.Config.CallBackURL
+		// disable autodetect
+		srv.lockableMyURL = srv.Config.MyURL
+	}
 	return srv
+}
+
+// IsMyURLEmpty check if app URL autodetect requested
+func (srv *Service) IsMyURLEmpty() bool {
+	srv.lock.Lock()
+	defer srv.lock.Unlock()
+	return srv.lockableMyURL == ""
+}
+
+// SetMyURL changes app URL
+func (srv *Service) SetMyURL(scheme, host string) {
+	//Use mutex here
+	srv.lock.Lock()
+	srv.lockableMyURL = fmt.Sprintf("%s://%s", scheme, host)
+	srv.api.RedirectURL = srv.lockableMyURL + srv.Config.CallBackURL
+	srv.lock.Unlock()
 }
 
 // AuthIsOK returns true if request is allowed to proceed
@@ -162,10 +194,19 @@ func (srv *Service) AuthIsOK(w http.ResponseWriter, r *http.Request) bool {
 	var ids *[]string
 	var auth string
 	log := logr.FromContextOrDiscard(r.Context())
+
+	scheme := "http"
+	if r.TLS != nil {
+		scheme += "s"
+	}
+	if srv.IsMyURLEmpty() {
+		srv.SetMyURL(scheme, r.Host)
+	}
+
 	if u, p, ok := r.BasicAuth(); ok {
-		log.Info("Basic Auth requested", "user", u)
-		if u != "token" {
-			warn(w, log, ErrBasicTokenExpected, "", http.StatusUnauthorized)
+		log.V(DL).Info("Basic Auth requested", "user", u)
+		if u != srv.Config.BasicUser {
+			warn(w, log, ErrBasicTokenExpected, srv.Config.BasicUser, http.StatusUnauthorized)
 			return false
 		}
 		auth = p
@@ -190,16 +231,18 @@ func (srv *Service) AuthIsOK(w http.ResponseWriter, r *http.Request) bool {
 		log.V(DL).Info("User meta", "tags", ids)
 
 	} else {
+		// No header => check others
+
+		// Basic auth
 		ua := r.Header.Get("User-Agent")
-		if strings.HasPrefix(ua, "docker/") {
-			log.Info("Docker", "ua", ua)
-			w.Header().Add("Docker-Distribution-Api-Version", "registry/2.0")
-			w.Header().Set("WWW-Authenticate", fmt.Sprintf("Basic realm=%q", "narra"))
+		if strings.HasPrefix(ua, srv.Config.BasicUserAgent) {
+			log.V(DL).Info("This ua requires Basic Auth", "ua", ua)
+			w.Header().Set("WWW-Authenticate", fmt.Sprintf("Basic realm=%q", srv.Config.BasicRealm))
 			http.Error(w, ErrBasicAuthRequired.Error(), http.StatusUnauthorized)
 			return false
 		}
 
-		// own cookie
+		// Own cookie
 		cookie, err := r.Cookie(srv.Config.CookieName)
 		errMsg := "Cookie read error"
 		if err == nil {
@@ -208,6 +251,9 @@ func (srv *Service) AuthIsOK(w http.ResponseWriter, r *http.Request) bool {
 		}
 		if err != nil {
 			log.V(DL).Info(errMsg, "error", err.Error())
+			r.Header.Set("X-Forwarded-Proto", scheme)
+			r.Header.Set("X-Forwarded-Host", r.Host)
+			r.Header.Set("X-Forwarded-Uri", r.RequestURI)
 			if srv.Config.Do401 && r.Header.Get("Accept") != "application/json" {
 				// traefik wants redirect to provider
 				srv.Stage1Handler().ServeHTTP(w, r)
@@ -297,6 +343,7 @@ func (srv *Service) Stage2Handler() http.Handler {
 	return http.HandlerFunc(fn)
 }
 
+// LogoutHandler handles auth cookie clearing
 func (srv *Service) LogoutHandler() http.Handler {
 	fn := func(w http.ResponseWriter, r *http.Request) {
 		cookie := &http.Cookie{
@@ -314,6 +361,7 @@ func (srv *Service) LogoutHandler() http.Handler {
 	return http.HandlerFunc(fn)
 }
 
+// request processes requests to Auth service
 func (srv *Service) request(client *http.Client, url string, data interface{}) error {
 	req, err := http.NewRequest("GET", srv.Config.Host+url, nil)
 	if err != nil {
@@ -368,6 +416,7 @@ func (srv *Service) getMeta(client *http.Client) (*[]string, error) {
 	return &tags, nil
 }
 
+// processMeta fetches user's metadata at auth stage 2
 func (srv *Service) processMeta(r *http.Request) (url string, ids *[]string, err error) {
 	log := logr.FromContextOrDiscard(r.Context())
 	code := r.FormValue("code")
@@ -397,7 +446,7 @@ func (srv *Service) processMeta(r *http.Request) (url string, ids *[]string, err
 		return
 	}
 
-	log.V(DL).Info("API token", "token", tok)
+	log.V(DL+1).Info("API token", "token", tok)
 	client := srv.api.Client(ctx, tok)
 
 	// load usernames from provider
@@ -406,7 +455,7 @@ func (srv *Service) processMeta(r *http.Request) (url string, ids *[]string, err
 	return
 }
 
-// Check if str exists in strings slice
+// stringExists checks if str exists in strings slice
 func stringExists(strings *[]string, str string) bool {
 	if len(*strings) > 0 {
 		for _, s := range *strings {
@@ -418,6 +467,7 @@ func stringExists(strings *[]string, str string) bool {
 	return false
 }
 
+// warn prints warning to log and http
 func warn(w http.ResponseWriter, log logr.Logger, e error, msg string, status int) {
 	log.Error(e, msg)
 	http.Error(w, e.Error(), status)
