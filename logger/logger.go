@@ -3,22 +3,25 @@ package logger
 import (
 	"context"
 	"io"
-	"strconv"
+	"os"
 
 	"github.com/go-logr/logr"
 	"github.com/go-logr/zerologr"
 	"github.com/rs/zerolog"
 )
 
-type Log struct {
-	zerolog.Logger
+// Config holds package configuration
+type Config struct {
+	Debug       bool   `long:"debug" description:"Show debug info"`
+	Destination string `long:"dest" description:"Log destination (defailt: STDERR)"`
 }
 
-func New(out io.Writer, isDebug bool) logr.Logger {
+// New creates new logger according to Config
+func New(cfg Config, out io.Writer) logr.Logger {
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnixMs
 	zerologr.NameFieldName = "logger"
 	zerologr.NameSeparator = "/"
-	zerolog.CallerMarshalFunc = func(file string, line int) string {
+	/*	zerolog.CallerMarshalFunc = func(file string, line int) string {
 		short := file
 		slashes := 1
 		for i := len(file) - 1; i > 0; i-- {
@@ -32,10 +35,17 @@ func New(out io.Writer, isDebug bool) logr.Logger {
 		}
 		file = short
 		return file + ":" + strconv.Itoa(line)
-	}
+	}*/
+	if out == nil {
+		if cfg.Destination == "" {
+			out = os.Stderr
+		} else {
+			// TODO
+		}
 
+	}
 	var zl zerolog.Logger
-	if isDebug {
+	if cfg.Debug {
 		zl = zerolog.New(zerolog.ConsoleWriter{Out: out}).Level(zerolog.DebugLevel)
 	} else {
 		zl = zerolog.New(out).Level(zerolog.InfoLevel)
