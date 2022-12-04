@@ -2,45 +2,39 @@ package config
 
 import (
 	"errors"
-	"io"
+	"fmt"
+	"os"
 
-	"github.com/jessevdk/go-flags"
+	flags "github.com/jessevdk/go-flags"
 )
 
-// -----------------------------------------------------------------------------
+const (
+	// ExitNormal means there is no errors
+	ExitNormal = iota
+	// ExitError returned on application error
+	ExitError
+	// ExitBadArgs returned on config parse error
+	ExitBadArgs
+	// ExitHelp returned when help was requested
+	ExitHelp
+)
+
 var (
-	// ErrVersionRequest returned when version info requested
-	ErrVersionRequest = errors.New("version requested")
 	// ErrHelpRequest returned when help requested
 	ErrHelpRequest = errors.New("help requested")
-	// ErrBadArgs returned after showing command args error message
-	ErrBadArgs = errors.New("option error printed")
+	// ErrPrinted returned after showing error message
+	ErrPrinted = errors.New("error printed")
 )
 
+// ErrBadArgsContainer holds config parse error
 type ErrBadArgsContainer struct {
 	err error
 }
 
+// Error returns inner Error()
 func (e ErrBadArgsContainer) Error() string {
 	return e.err.Error()
 }
-
-// Config defines base config prameters
-type Config struct {
-	Debug bool `long:"debug"                         description:"Show debug data"`
-}
-
-type ConfigWithVersionRequest interface {
-	ShowVersion() bool
-}
-
-// ConfigWithVersion defines Config with version flag
-type ConfigWithVersion struct {
-	Config
-	ShowVersionAndExit bool `long:"version"                       description:"Show version and exit"`
-}
-
-func (cfg ConfigWithVersion) ShowVersion() bool { return cfg.ShowVersionAndExit }
 
 // Open loads flags from args (if given) or command flags and ENV otherwise
 func Open(cfg interface{}, args ...string) (err error) {
@@ -59,34 +53,24 @@ func Open(cfg interface{}, args ...string) (err error) {
 	return
 }
 
-// OpenWithVersion does Open and returns error when version requested
-func OpenWithVersion(cfg ConfigWithVersionRequest, args ...string) (err error) {
-	err = Open(cfg, args...)
-	if err != nil {
+// Close runs exit after deferred cleanups have run
+func Close(e error, exitFunc func(code int)) {
+	if e == nil {
+		exitFunc(ExitNormal)
 		return
 	}
-	if cfg.ShowVersion() {
-		return ErrVersionRequest
+	code := ExitError
+	if _, ok := e.(ErrBadArgsContainer); ok {
+		code = ExitBadArgs
 	}
-	return
-}
-
-// Close runs exit after deferred cleanups have run
-func Close(exitFunc func(code int), e error, out io.Writer, version string) {
-	if e != nil {
-		code := 1
-		if _, ok := e.(ErrBadArgsContainer); ok {
-			code = 2
-		}
-		switch e {
-		case ErrHelpRequest:
-			// help was printed in Parse
-			code = 3
-		case ErrVersionRequest:
-			out.Write([]byte(version))
-		default:
-			out.Write([]byte(e.Error()))
-		}
-		exitFunc(code)
+	switch e {
+	case ErrHelpRequest:
+		// help was printed in Parse
+		code = ExitHelp
+	case ErrPrinted:
+		// error was printed already
+	default:
+		fmt.Fprintln(os.Stderr, e.Error())
 	}
+	exitFunc(code)
 }
