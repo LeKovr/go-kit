@@ -42,7 +42,7 @@ func New(cfg Config, out io.Writer) logr.Logger {
 	return log
 }
 
-func shortCallerPath(file string, line int) string {
+func shortCallerPath(pc uintptr, file string, line int) string {
 		short := file
 		slashes := 2
 		for i := len(file) - 1; i > 0; i-- {
