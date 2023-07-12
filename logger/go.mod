@@ -3,7 +3,7 @@ module github.com/LeKovr/go-kit/logger
 go 1.19
 
 // Dependabot alerts #1
-require golang.org/x/sys v0.0.0-20220412211240-33da011f77ad // indirect
+require golang.org/x/sys v0.10.0 // indirect
 
 require (
 	github.com/go-logr/logr v1.2.4
