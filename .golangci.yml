@@ -7,7 +7,6 @@
   "fast": false,
   "linters": {
     "enable": [
-      "deadcode",
       "errcheck",
       "gas",
       "gocritic",
@@ -24,7 +23,6 @@
       "unconvert",
       "unparam",
       "unused",
-      "varcheck",
     ],
   },
   "disable": [
