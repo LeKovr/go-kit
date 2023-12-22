@@ -1,13 +1,13 @@
 module github.com/LeKovr/go-kit/config
 
-go 1.19
+go 1.21
 
 // Dependabot alerts #1
 require golang.org/x/sys v0.10.0 // indirect
 
 require (
 	github.com/jessevdk/go-flags v1.5.0
-	github.com/stretchr/testify v1.8.2
+	github.com/stretchr/testify v1.8.4
 )
 
 require (

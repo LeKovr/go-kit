@@ -5,11 +5,10 @@ import (
 	"os"
 	"testing"
 
+	"github.com/LeKovr/go-kit/ver"
 	"github.com/go-logr/logr"
 	"github.com/go-logr/zerologr"
 	"github.com/rs/zerolog"
-
-	"github.com/LeKovr/go-kit/ver"
 	"github.com/stretchr/testify/assert"
 )
 
