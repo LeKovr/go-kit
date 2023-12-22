@@ -1,6 +1,20 @@
 # go-kit/logger
 
-Требования
+[![Go Reference][ref1]][ref2]
+ [![GitHub Release][gr1]][gr2]
+ [![GoCard][gc1]][gc2]
+ [![GitHub license][gl1]][gl2]
+
+[ref1]: https://pkg.go.dev/badge/github.com/LeKovr/go-kit/logger.svg
+[ref2]: https://pkg.go.dev/github.com/LeKovr/go-kit/logger
+[gc1]: https://goreportcard.com/badge/github.com/LeKovr/go-kit/logger
+[gc2]: https://goreportcard.com/report/github.com/LeKovr/go-kit/logger
+[gr1]: https://img.shields.io/github/release/LeKovr/go-kit/logger.svg
+[gr2]: https://github.com/LeKovr/go-kit/logger/releases
+[gl1]: https://img.shields.io/github/license/LeKovr/go-kit.svg
+[gl2]: https://github.com/LeKovr/go-kit/blob/master/LICENSE
+
+## Требования
 
 * поля со значениями, а не строки
 * в числе полей есть имя файла и номер строки
