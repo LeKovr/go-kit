@@ -43,20 +43,20 @@ func New(cfg Config, out io.Writer) logr.Logger {
 }
 
 func shortCallerPath(pc uintptr, file string, line int) string {
-		short := file
-		slashes := 2
-		for i := len(file) - 1; i > 0; i-- {
-			if file[i] == '/' {
-				short = file[i+1:]
-				if slashes == 0 {
-					break
-				}
-				slashes--
+	short := file
+	slashes := 2
+	for i := len(file) - 1; i > 0; i-- {
+		if file[i] == '/' {
+			short = file[i+1:]
+			if slashes == 0 {
+				break
 			}
+			slashes--
 		}
-		file = short
-		return file + ":" + strconv.Itoa(line)
 	}
+	file = short
+	return file + ":" + strconv.Itoa(line)
+}
 
 // NewContext calls logr.NewContext so ypu don't need to import logr for it.
 func NewContext(ctx context.Context, logger logr.Logger) context.Context {
