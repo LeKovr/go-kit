@@ -9,8 +9,8 @@
 [ref2]: https://pkg.go.dev/github.com/LeKovr/go-kit/slogger
 [gc1]: https://goreportcard.com/badge/github.com/LeKovr/go-kit/slogger
 [gc2]: https://goreportcard.com/report/github.com/LeKovr/go-kit/slogger
-[gr1]: https://img.shields.io/github/release/LeKovr/go-kit/slogger.svg
-[gr2]: https://github.com/LeKovr/go-kit/slogger/releases
+[gr1]: https://img.shields.io/github/v/tag/Lekovr/go-kit?filter=slogger/*
+[gr2]: https://github.com/LeKovr/go-kit/releases?q=slogger&expanded=true
 [gl1]: https://img.shields.io/github/license/LeKovr/go-kit.svg
 [gl2]: https://github.com/LeKovr/go-kit/blob/master/LICENSE
 
