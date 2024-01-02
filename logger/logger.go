@@ -26,10 +26,7 @@ func New(cfg Config, out io.Writer) logr.Logger {
 	if out == nil {
 		if cfg.Destination == "" {
 			out = os.Stderr
-		} else {
-			// TODO
 		}
-
 	}
 	var zl zerolog.Logger
 	if cfg.Debug {

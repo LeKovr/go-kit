@@ -15,8 +15,6 @@ func TestNew(t *testing.T) {
 	}{
 		{"Debug", true, []string{"test_log", "test_debug"}},
 		{"NoDebug", false, []string{"test_log"}},
-		//		{"Debug", true, [][]byte{[]byte("test_log"), []byte("test_debug")}},
-		//		{"NoDebug", false, [][]byte{[]byte("test_log")}},
 	}
 	for _, tt := range tests {
 		buf := new(bytes.Buffer)
@@ -24,7 +22,6 @@ func TestNew(t *testing.T) {
 		log.Info("test_log")
 		log.V(1).Info("test_debug")
 		for _, str := range tt.matches {
-			//assert.True(t, bytes.Contains(buf.Bytes(), str), tt.name)
 			assert.Contains(t, buf.String(), str)
 		}
 	}
