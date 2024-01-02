@@ -32,7 +32,8 @@ type Config struct {
 	UserHeader string `long:"user_header" env:"USER_HEADER" default:"X-Username" description:"HTTP Request Header for username"`
 
 	VersionPrefix string `long:"ver_prefix" default:"/js/version.js" description:"URL for version response"`
-	VersionFormat string `long:"ver_format" default:"document.addEventListener('DOMContentLoaded', () => { appVersion.innerHTML = '%s'; });\n" description:"Format string for version response"`
+	VersionFormat string `long:"ver_format" default:"document.addEventListener('DOMContentLoaded', () => { appVersion.innerText = '%s'; });\n" description:"Format string for version response"`
+	VersionCType  string `long:"ver_ctype"  default:"text/javascript" description:"js code Content-Type header"`
 }
 
 type Handler func(http.Handler) http.Handler
@@ -67,7 +68,7 @@ func (srv *Service) WithStatic(fSystem fs.FS) *Service {
 
 func (srv *Service) WithVersion(version string) *Service {
 	srv.mux.HandleFunc(srv.config.VersionPrefix, func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/javascript")
+		w.Header().Set("Content-Type", srv.config.VersionCType)
 		_, err := fmt.Fprintf(w, srv.config.VersionFormat, version)
 		if err != nil {
 			slog.Error("Verion response", "err", err)
@@ -104,6 +105,7 @@ func (srv Service) Run(ctxParent context.Context, workers ...Worker) error {
 	listener := srv.listener
 	if listener == nil {
 		var err error
+		slog.Debug("Start HTTP service", "addr", cfg.Listen)
 		if listener, err = net.Listen("tcp", cfg.Listen); err != nil {
 			return err
 		}
@@ -123,7 +125,6 @@ func (srv Service) Run(ctxParent context.Context, workers ...Worker) error {
 	// start servers
 	g, gCtx := errgroup.WithContext(ctx)
 	g.Go(func() error {
-		slog.Debug("Start HTTP service", "addr", cfg.Listen)
 		return server.Serve(listener)
 	})
 	g.Go(func() error {
@@ -145,7 +146,7 @@ func (srv Service) Run(ctxParent context.Context, workers ...Worker) error {
 			return w(gCtx)
 		})
 	}
-	if er := g.Wait(); er != nil && !errors.Is(er, http.ErrServerClosed) {
+	if er := g.Wait(); er != nil && !errors.Is(er, http.ErrServerClosed) && !errors.Is(er, net.ErrClosed) {
 		return er
 	}
 	slog.Info("Exit")
