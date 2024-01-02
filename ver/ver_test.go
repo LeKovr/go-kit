@@ -2,14 +2,12 @@ package ver_test
 
 import (
 	"bytes"
+	"log/slog"
 	"os"
 	"testing"
 
 	"github.com/LeKovr/go-kit/ver"
-	"github.com/go-logr/logr"
-	"github.com/go-logr/zerologr"
-	"github.com/rs/zerolog"
-	"github.com/stretchr/testify/assert"
+	ass "github.com/alecthomas/assert"
 )
 
 var (
@@ -29,14 +27,20 @@ var (
 	*/
 )
 
+func replace(groups []string, a slog.Attr) slog.Attr {
+	// Remove time from the output for predictable test output.
+	if a.Key == slog.TimeKey {
+		return slog.Attr{}
+	}
+	return a
+}
+
 func ExampleCheck() {
-	zl := zerolog.New(os.Stdout).Level(zerolog.InfoLevel)
-	var log logr.Logger = zerologr.New(&zl)
-
-	ver.Check(log, repo, version)
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{ReplaceAttr: replace}))
+	slog.SetDefault(logger)
+	ver.Check(repo, version)
 	// Output:
-	// {"level":"info","v":0,"appVersion":"0.0-dev","sourceVersion":"v0.31","sourceUpdated":"2017-10-17T08:56:03Z","sourceLink":" See https://github.com/LeKovr/dbrpc/releases/tag/v0.31","message":"App version is outdated"}
-
+	// {"level":"INFO","msg":"App version is outdated","appVersion":"0.0-dev","sourceVersion":"v0.31","sourceUpdated":"2017-10-17T08:56:03Z","sourceLink":" See https://github.com/LeKovr/dbrpc/releases/tag/v0.31"}
 }
 
 func TestIsCheckOk(t *testing.T) {
@@ -49,20 +53,20 @@ func TestIsCheckOk(t *testing.T) {
 		{true, "v0.31", "https://github.com/LeKovr/dbrpc.git", ""},
 		{true, "v0.31", "git@github.com:LeKovr/dbrpc.git", ""},
 		{true, "any version is ok", "git@github.com:LeKovr/golang-use.git", ""},
-		{false, "v0.30", "https://github.com/LeKovr/dbrpc.git", "{\"level\":\"info\",\"v\":0,\"appVersion\":\"v0.30\",\"sourceVersion\":\"v0.31\",\"sourceUpdated\":\"2017-10-17T08:56:03Z\",\"sourceLink\":\" See https://github.com/LeKovr/dbrpc/releases/tag/v0.31\",\"message\":\"App version is outdated\"}\n"},
+		{false, "v0.30", "https://github.com/LeKovr/dbrpc.git", "{\"level\":\"INFO\",\"msg\":\"App version is outdated\",\"appVersion\":\"v0.30\",\"sourceVersion\":\"v0.31\",\"sourceUpdated\":\"2017-10-17T08:56:03Z\",\"sourceLink\":\" See https://github.com/LeKovr/dbrpc/releases/tag/v0.31\"}\n"},
 		{false, "v0.0", "https://localhost:10", "Get \"https://localhost:10/releases.atom\": dial tcp 127.0.0.1:10: connect: connection refused"},
 	}
 	for _, tt := range tests {
 		buf := new(bytes.Buffer)
-		zl := zerolog.New(buf).Level(zerolog.InfoLevel)
-		var log logr.Logger = zerologr.New(&zl)
-		ok, err := ver.IsCheckOk(log, tt.repo, tt.version)
-		assert.Equal(t, tt.isOk, ok)
+		h := slog.NewJSONHandler(buf, &slog.HandlerOptions{ReplaceAttr: replace})
+		slog.SetDefault(slog.New(h))
+		ok, err := ver.IsCheckOk(tt.repo, tt.version)
+		ass.Equal(t, tt.isOk, ok)
 		if !tt.isOk {
 			if err != nil {
-				assert.EqualError(t, err, tt.err)
+				ass.EqualError(t, err, tt.err)
 			} else {
-				assert.Equal(t, tt.err, buf.String())
+				ass.Equal(t, tt.err, buf.String())
 			}
 		}
 	}

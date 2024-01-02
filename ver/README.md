@@ -9,8 +9,8 @@
 [ref2]: https://pkg.go.dev/github.com/LeKovr/go-kit/ver
 [gc1]: https://goreportcard.com/badge/github.com/LeKovr/go-kit/ver
 [gc2]: https://goreportcard.com/report/github.com/LeKovr/go-kit/ver
-[gr1]: https://img.shields.io/github/v/tag/Lekovr/go-kit?filter=server/*
-[gr2]: https://github.com/LeKovr/go-kit/releases?q=server&expanded=true
+[gr1]: https://img.shields.io/github/v/tag/Lekovr/go-kit?filter=ver/*
+[gr2]: https://github.com/LeKovr/go-kit/releases?q=ver&expanded=true
 [gl1]: https://img.shields.io/github/license/LeKovr/go-kit.svg
 [gl2]: https://github.com/LeKovr/go-kit/blob/master/LICENSE
 
