@@ -7,14 +7,16 @@ import (
 	"time"
 
 	"github.com/lmittmann/tint"
+	"github.com/mattn/go-isatty"
 )
 
-// Config holds package configuration
+// Config holds package configuration.
 type Config struct {
 	Debug       bool   `long:"debug" description:"Show debug info"`
 	Destination string `long:"dest" description:"Log destination (defailt: STDERR)"`
 }
 
+// Setup creates slog default logger.
 func Setup(cfg Config, out io.Writer) error {
 	if out == nil {
 		if cfg.Destination == "" {
@@ -27,25 +29,32 @@ func Setup(cfg Config, out io.Writer) error {
 			}
 		}
 	}
-	//	var logger *slog.Logger
 	var handler slog.Handler
 	if cfg.Debug {
-		/*
-			lvl := new(slog.LevelVar)
-			lvl.Set(slog.LevelDebug)
-			logger = slog.New(slog.NewTextHandler(out, &slog.HandlerOptions{
+		if f, ok := out.(*os.File); ok && isatty.IsTerminal(f.Fd()) {
+			handler = tint.NewHandler(out, &tint.Options{
+				AddSource:  true,
+				Level:      slog.LevelDebug,
+				TimeFormat: time.Kitchen,
+			})
+		} else {
+			// out JSON if not inTerminal
+			handler = slog.NewJSONHandler(out, &slog.HandlerOptions{
 				AddSource: true,
-				Level:     lvl,
-			}))
-		*/
-		handler = tint.NewHandler(out, &tint.Options{
-			AddSource:  true,
-			Level:      slog.LevelDebug,
-			TimeFormat: time.Kitchen,
-		})
+				Level:     slog.LevelDebug,
+			})
+		}
 	} else {
 		handler = slog.NewJSONHandler(out, nil)
 	}
 	slog.SetDefault(slog.New(handler))
 	return nil
+}
+
+// ErrAttr returns slog.Attr for err value.
+func ErrAttr(err error) slog.Attr {
+	return slog.Attr{
+		Key:   "error",
+		Value: slog.StringValue(err.Error()),
+	}
 }
