@@ -4,4 +4,6 @@ use (
 	./config
 	./logger
 	./ver
+	./server
+	./slogger
 )
