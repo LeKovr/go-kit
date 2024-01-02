@@ -36,10 +36,13 @@ type Config struct {
 	VersionCType  string `long:"ver_ctype"  default:"text/javascript" description:"js code Content-Type header"`
 }
 
+// Handler is a http midleware handler.
 type Handler func(http.Handler) http.Handler
 
+// Worker is a server goroutene worker.
 type Worker func(ctx context.Context) error
 
+// Service holds service attributes.
 type Service struct {
 	config     Config
 	listener   net.Listener
@@ -48,6 +51,7 @@ type Service struct {
 	onShutdown *Worker
 }
 
+// New returns *Service.
 func New(cfg Config) *Service {
 	return &Service{
 		config: cfg,
@@ -55,17 +59,20 @@ func New(cfg Config) *Service {
 	}
 }
 
+// WithListener sets service listener.
 func (srv *Service) WithListener(listener net.Listener) *Service {
 	srv.listener = listener
 	return srv
 }
 
+// WithStatic sets static filesystem for serve via http.
 func (srv *Service) WithStatic(fSystem fs.FS) *Service {
 	httpFileServer := http.FileServer(http.FS(fSystem))
 	srv.mux.Handle("/", httpFileServer)
 	return srv
 }
 
+// WithVersion sets hanler returning source code version as js.
 func (srv *Service) WithVersion(version string) *Service {
 	srv.mux.HandleFunc(srv.config.VersionPrefix, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", srv.config.VersionCType)
@@ -77,22 +84,25 @@ func (srv *Service) WithVersion(version string) *Service {
 	return srv
 }
 
+// Use adds handler for muxer.
 func (srv *Service) Use(handler Handler) *Service {
 	srv.handlers = append(srv.handlers, handler)
 	return srv
 }
 
+// ServeMux returns service muxer.
 func (srv Service) ServeMux() *http.ServeMux {
 	return srv.mux
 }
 
+// WithShutdown registers worker for call on shutdown.
 func (srv *Service) WithShutdown(worker Worker) *Service {
 	srv.onShutdown = &worker
 	return srv
 }
 
+// Run runs the service.
 func (srv Service) Run(ctxParent context.Context, workers ...Worker) error {
-
 	ctx, stop := signal.NotifyContext(ctxParent, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
@@ -153,14 +163,17 @@ func (srv Service) Run(ctxParent context.Context, workers ...Worker) error {
 	return nil
 }
 
-// func(http.Handler) *http.ServeMux
-// withReqLogger prints HTTP request log.
+// WithAccessLog calculates estimate and prints HTTP request log.
 func (cfg Config) WithAccessLog(handler http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		m := httpsnoop.CaptureMetrics(handler, w, r)
 		ip := r.Header.Get(cfg.IPHeader)
 		if ip == "" {
-			ip = r.RemoteAddr[:strings.Index(r.RemoteAddr, ":")]
+			if colonPos := strings.Index(r.RemoteAddr, ":"); colonPos == -1 {
+				ip = r.RemoteAddr
+			} else {
+				ip = r.RemoteAddr[:colonPos]
+			}
 		}
 		user := r.Header.Get(cfg.UserHeader)
 		if user == "" {
@@ -182,7 +195,7 @@ func (cfg Config) WithAccessLog(handler http.Handler) http.Handler {
 	})
 }
 
-// WithETag addr ETAG to response.
+// WithETag adds ETAG to response.
 func (cfg Config) WithETag(handler http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		etag.Handler(handler, false).ServeHTTP(w, r)
