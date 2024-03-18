@@ -4,6 +4,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"testing"
 	"time"
 
 	"github.com/lmittmann/tint"
@@ -13,7 +14,7 @@ import (
 // Config holds package configuration.
 type Config struct {
 	Debug       bool   `long:"debug" description:"Show debug info"`
-	Destination string `long:"dest" description:"Log destination (defailt: STDERR)"`
+	Destination string `long:"dest" description:"Log destination (default: STDERR)"`
 }
 
 // Setup creates slog default logger.
@@ -31,7 +32,8 @@ func Setup(cfg Config, out io.Writer) error {
 	}
 	var handler slog.Handler
 	if cfg.Debug {
-		if f, ok := out.(*os.File); ok && isatty.IsTerminal(f.Fd()) {
+		if f, ok := out.(*os.File); ok && (isatty.IsTerminal(f.Fd()) || testing.Testing() ) {
+		//if _, ok := out.(*os.File); ok { // && isatty.IsTerminal(f.Fd()) {
 			handler = tint.NewHandler(out, &tint.Options{
 				AddSource:  true,
 				Level:      slog.LevelDebug,
