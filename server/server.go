@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -19,6 +20,20 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+// TLSConfig holds TLS config options
+type TLSConfig struct {
+	CertFile           string `long:"cert" description:"CertFile for serving HTTPS instead HTTP" env:"CERT" `
+	KeyFile            string `long:"key"  description:"KeyFile for serving HTTPS instead HTTP" env:"KEY" `
+	NoCheckCertificate bool   `long:"no-check" description:"disable tls certificate validation"`
+}
+
+// VersionResponseConfig
+type VersionResponseConfig struct {
+	Prefix string `long:"prefix" default:"/js/version.js" description:"URL for version response"`
+	Format string `long:"format" default:"document.addEventListener('DOMContentLoaded', () => { appVersion.innerText = '%s'; });\n" description:"Format string for version response"`
+	CType  string `long:"ctype"  default:"text/javascript" description:"js code Content-Type header"`
+}
+
 // Config holds all config vars.
 type Config struct {
 	Listen string `long:"listen" default:":8080" description:"Addr and port which server listens at"`
@@ -31,9 +46,8 @@ type Config struct {
 	IPHeader   string `long:"ip_header" env:"IP_HEADER" default:"X-Real-IP" description:"HTTP Request Header for remote IP"`
 	UserHeader string `long:"user_header" env:"USER_HEADER" default:"X-Username" description:"HTTP Request Header for username"`
 
-	VersionPrefix string `long:"ver_prefix" default:"/js/version.js" description:"URL for version response"`
-	VersionFormat string `long:"ver_format" default:"document.addEventListener('DOMContentLoaded', () => { appVersion.innerText = '%s'; });\n" description:"Format string for version response"`
-	VersionCType  string `long:"ver_ctype"  default:"text/javascript" description:"js code Content-Type header"`
+	TLS     TLSConfig             `group:"HTTPS Options"            namespace:"tls"  env-namespace:"TLS"`
+	Version VersionResponseConfig `group:"Version response Options" namespace:"vr"`
 }
 
 // Handler is a http midleware handler.
@@ -74,9 +88,9 @@ func (srv *Service) WithStatic(fSystem fs.FS) *Service {
 
 // WithVersion sets hanler returning source code version as js.
 func (srv *Service) WithVersion(version string) *Service {
-	srv.mux.HandleFunc(srv.config.VersionPrefix, func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", srv.config.VersionCType)
-		_, err := fmt.Fprintf(w, srv.config.VersionFormat, version)
+	srv.mux.HandleFunc(srv.config.Version.Prefix, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", srv.config.Version.CType)
+		_, err := fmt.Fprintf(w, srv.config.Version.Format, version)
 		if err != nil {
 			slog.Error("Verion response", "err", err)
 		}
@@ -115,14 +129,13 @@ func (srv Service) Run(ctxParent context.Context, workers ...Worker) error {
 	listener := srv.listener
 	if listener == nil {
 		var err error
-		slog.Debug("Start HTTP service", "addr", cfg.Listen)
+		slog.Debug("Start Listener", "addr", cfg.Listen)
 		if listener, err = net.Listen("tcp", cfg.Listen); err != nil {
 			return err
 		}
 	}
 	// Creating a normal HTTP server
 	server := &http.Server{
-		//		Addr:    cfg.Listen,
 		Handler: mux,
 		BaseContext: func(_ net.Listener) context.Context {
 			return ctx
@@ -131,12 +144,23 @@ func (srv Service) Run(ctxParent context.Context, workers ...Worker) error {
 		WriteTimeout:   cfg.WriteTimeout,
 		MaxHeaderBytes: cfg.MaxHeaderBytes,
 	}
+	if cfg.TLS.NoCheckCertificate {
+		http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	}
 
 	// start servers
 	g, gCtx := errgroup.WithContext(ctx)
-	g.Go(func() error {
-		return server.Serve(listener)
-	})
+	if srv.config.TLS.CertFile != "" {
+		slog.Debug("Start HTTPS service")
+		g.Go(func() error {
+			return server.ServeTLS(listener, srv.config.TLS.CertFile, srv.config.TLS.KeyFile)
+		})
+	} else {
+		slog.Debug("Start HTTP service")
+		g.Go(func() error {
+			return server.Serve(listener)
+		})
+	}
 	g.Go(func() error {
 		<-gCtx.Done()
 		slog.Debug("Shutdown")
