@@ -9,6 +9,8 @@ import (
 
 	"github.com/lmittmann/tint"
 	"github.com/mattn/go-isatty"
+
+	slogotel "github.com/remychantenay/slog-otel"
 )
 
 // Config holds package configuration.
@@ -32,8 +34,7 @@ func Setup(cfg Config, out io.Writer) error {
 	}
 	var handler slog.Handler
 	if cfg.Debug {
-		if f, ok := out.(*os.File); ok && (isatty.IsTerminal(f.Fd()) || testing.Testing() ) {
-		//if _, ok := out.(*os.File); ok { // && isatty.IsTerminal(f.Fd()) {
+		if f, ok := out.(*os.File); ok && (isatty.IsTerminal(f.Fd()) || testing.Testing()) {
 			handler = tint.NewHandler(out, &tint.Options{
 				AddSource:  true,
 				Level:      slog.LevelDebug,
@@ -49,6 +50,8 @@ func Setup(cfg Config, out io.Writer) error {
 	} else {
 		handler = slog.NewJSONHandler(out, nil)
 	}
+	// Work when OTEL_EXPORTER_OTLP_ENDPOINT is set
+	handler = slogotel.OtelHandler{Next: handler}
 	slog.SetDefault(slog.New(handler))
 	return nil
 }
