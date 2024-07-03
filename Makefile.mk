@@ -28,8 +28,10 @@ coverage.out: $(SOURCES)
 	$(GO) test -tags $(TEST_TAGS)$(TEST_TAGS_MORE) -covermode=atomic -coverprofile=$@ ./...
 
 ## show package coverage in html
-cov-html: coverage.out
-	$(GO) tool cover -html=coverage.out
+cov-html: coverage.html
+
+coverage.html: coverage.out
+	$(GO) tool cover -html=$< -o $@
 
 ## clean generated files
 clean:
