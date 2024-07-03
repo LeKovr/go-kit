@@ -22,8 +22,8 @@ import (
 
 // TLSConfig holds TLS config options
 type TLSConfig struct {
-	CertFile           string `long:"cert" description:"CertFile for serving HTTPS instead HTTP" env:"CERT" `
-	KeyFile            string `long:"key"  description:"KeyFile for serving HTTPS instead HTTP" env:"KEY" `
+	CertFile           string `long:"cert" description:"CertFile for serving HTTPS instead HTTP" env:"CERT"`
+	KeyFile            string `long:"key"  description:"KeyFile for serving HTTPS instead HTTP" env:"KEY"`
 	NoCheckCertificate bool   `long:"no-check" description:"disable tls certificate validation"`
 }
 
@@ -36,7 +36,7 @@ type VersionResponseConfig struct {
 
 // Config holds all config vars.
 type Config struct {
-	Listen string `long:"listen" default:":8080" description:"Addr and port which server listens at"`
+	Listen string `long:"listen" default:":8080" description:"Addr and port which server listens at" env:"LISTEN"`
 
 	MaxHeaderBytes int           `long:"maxheader" description:"MaxHeaderBytes"`
 	ReadTimeout    time.Duration `long:"rto" default:"10s" description:"HTTP read timeout"`
@@ -117,7 +117,7 @@ func (srv *Service) WithShutdown(worker Worker) *Service {
 
 // Run runs the service.
 func (srv Service) Run(ctxParent context.Context, workers ...Worker) error {
-	ctx, stop := signal.NotifyContext(ctxParent, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
+	ctx, stop := signal.NotifyContext(ctxParent, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	cfg := srv.config
