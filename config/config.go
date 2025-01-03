@@ -24,7 +24,15 @@ var (
 	ErrHelpRequest = errors.New("help requested")
 	// ErrPrinted returned after showing error message
 	ErrPrinted = errors.New("error printed")
+	// ErrVersion returned after showing app version
+	ErrVersion = errors.New("version printed")
 )
+
+// Config содержит базовые настройки приложения.
+type Config struct {
+	// Version - флаг для вывода версии приложения.
+	Version bool `description:"Show version and exit" long:"version"`
+}
 
 // ErrBadArgsContainer holds config parse error
 type ErrBadArgsContainer struct {
@@ -69,8 +77,18 @@ func Close(e error, exitFunc func(code int)) {
 		code = ExitHelp
 	case ErrPrinted:
 		// error was printed already
+	case ErrVersion:
+		code = ExitNormal
 	default:
 		fmt.Fprintln(os.Stderr, e.Error())
 	}
 	exitFunc(code)
+}
+
+func (cfg Config) VersionRequested(application, version string) error {
+	if cfg.Version {
+		fmt.Println(application, version)
+		return ErrVersion
+	}
+	return nil
 }
