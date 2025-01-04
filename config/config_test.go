@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"testing"
 
@@ -56,6 +57,7 @@ func TestClose(t *testing.T) {
 		code int
 	}{
 		{"Normal", nil, ExitNormal},
+		{"Normal", ErrVersion, ExitNormal},
 		{"External error", ErrBadArgsContainer{extErr}, ExitBadArgs},
 		{"Help request", ErrHelpRequest, ExitHelp},
 		{"Error printed", ErrPrinted, ExitError},
@@ -68,4 +70,18 @@ func TestClose(t *testing.T) {
 			t.Errorf("'%s' failed: expected %d, actual %d", tt.name, tt.code, c)
 		}
 	}
+}
+
+func TestNoVersion(t *testing.T) {
+	err := Config{}.VersionRequested("", "")
+	assert.NoError(t, err)
+}
+
+func Example_versionRequested() {
+	cfg := Config{Version: true}
+	err := cfg.VersionRequested("app", "version")
+	fmt.Println(err)
+	// Output:
+	// app version
+	// version printed
 }
