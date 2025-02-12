@@ -26,12 +26,18 @@ var (
 	ErrPrinted = errors.New("error printed")
 	// ErrVersion returned after showing app version
 	ErrVersion = errors.New("version printed")
+	// ErrConfGen returned after config generation
+	ErrConfGen = errors.New("config printed")
 )
 
 // Config содержит базовые настройки приложения.
-type Config struct {
+type Version struct {
 	// Version - флаг для вывода версии приложения.
 	Version bool `description:"Show version and exit" long:"version"`
+}
+
+type Generate struct {
+	ConfGen string `description:"Generate config in given format and exit" env:"CONFIG_GEN" long:"config_gen" choice:"json" choice:"md" choice:"mk"`
 }
 
 // ErrBadArgsContainer holds config parse error
@@ -77,7 +83,7 @@ func Close(e error, exitFunc func(code int)) {
 		code = ExitHelp
 	case ErrPrinted:
 		// error was printed already
-	case ErrVersion:
+	case ErrVersion, ErrConfGen:
 		code = ExitNormal
 	default:
 		fmt.Fprintln(os.Stderr, e.Error())
@@ -85,10 +91,19 @@ func Close(e error, exitFunc func(code int)) {
 	exitFunc(code)
 }
 
-func (cfg Config) VersionRequested(application, version string) error {
+func (cfg Version) VersionRequested(application, version string) error {
 	if cfg.Version {
 		fmt.Println(application, version)
 		return ErrVersion
 	}
 	return nil
+}
+
+func (gen Generate) ConfGenRequested(cfg interface{}) error {
+	if gen.ConfGen != "" {
+		PrintConfig(cfg, gen.ConfGen)
+		return ErrConfGen
+	}
+	return nil
+
 }
