@@ -14,13 +14,13 @@ import (
 
 // Config holds package configuration.
 type Config struct {
-	Debug      bool   `long:"debug" description:"Show debug info"  env:"DEBUG"`
-	Format     string `default:"auto" choice:"auto" choice:"text" choice:"json" description:"Output format" long:"format" env:"FORMAT"`
-	TimeFormat string `default:"2006-01-02 15:04:05.000" description:"Time format for text output" long:"time_format" env:"TIME_FORMAT"`
-
-	Destination string `long:"dest" description:"Log destination (default: STDERR)"`
+	Debug       bool   `long:"debug" description:"Show debug info"  env:"DEBUG"`
+	Format      string `description:"Output format (default: '', means use text if DEBUG)" long:"format" env:"FORMAT" choice:"" choice:"text" choice:"json"` //lint:ignore SA5008 accepted as correct
+	TimeFormat  string `description:"Time format for text output" long:"time_format" env:"TIME_FORMAT" default:"2006-01-02 15:04:05.000"`
+	Destination string `description:"Log destination (default: '', means STDERR)" long:"dest" env:"DEST"`
 }
 
+// TimeDisableKey removes time from the output.
 const TimeDisableKey = " "
 
 // LogLevel holds
@@ -33,7 +33,7 @@ func Setup(cfg Config, out io.Writer) error {
 			out = os.Stderr
 		} else {
 			var err error
-			out, err = os.OpenFile(cfg.Destination, os.O_CREATE|os.O_APPEND, 0644)
+			out, err = os.OpenFile(cfg.Destination, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
 			if err != nil {
 				return err
 			}
@@ -60,7 +60,6 @@ func Setup(cfg Config, out io.Writer) error {
 	}
 	if useText {
 		if f, ok := out.(*os.File); ok && (isatty.IsTerminal(f.Fd()) || testing.Testing()) {
-			slog.Warn("use tint")
 			handler = tint.NewHandler(out, &tint.Options{
 				AddSource:  true,
 				Level:      LogLevel,
