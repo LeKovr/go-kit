@@ -12,27 +12,45 @@ import (
 	"strings"
 )
 
-type ConfigGroupDef struct {
-	Items []ConfigDef `json:"items"`
+// GroupDef - атрибуты группы параметров.
+type GroupDef struct {
+	Items []Def `json:"items"`
 }
-type ConfigItemDef struct {
+
+// ItemDef - атрибуты параметра конфигурации.
+type ItemDef struct {
 	Type    string   `json:"type"`
 	Default string   `json:"default,omitempty"`
 	Options []string `json:"options,omitempty"`
 }
 
-type ConfigDef struct {
-	Name        string          `json:"name"`
-	Env         string          `json:"env,omitempty"`
-	Description string          `json:"description,omitempty"`
-	IsGroup     bool            `json:"is_group,omitempty"`
-	Group       *ConfigGroupDef `json:"group,omitempty"`
-	Item        *ConfigItemDef  `json:"item,omitempty"`
+// Def - атрибуты группы/параметра конфигурации.
+type Def struct {
+	Name        string    `json:"name"`
+	Env         string    `json:"env,omitempty"`
+	Description string    `json:"description,omitempty"`
+	IsGroup     bool      `json:"is_group,omitempty"`
+	Group       *GroupDef `json:"group,omitempty"`
+	Item        *ItemDef  `json:"item,omitempty"`
 }
 
-// Рекурсивная функция для вывода тегов полей структуры
+var (
+	// LineFormatMk - формат строк параметра для Makefile.
+	LineFormatMk = "#- %s (%s) [%s]\n%-20s ?= %s\n"
+	// HeaderFormatMk - формат строки названия группы параметров для Makefile.
+	HeaderFormatMk = "\n# %s\n\n"
+
+	// LineFormatMD - формат строки параметра для Markdown.
+	LineFormatMD = "| %-20s | %-20s | %s | %s | %s |\n"
+	// HeaderFormatMD - формат строки названия группы параметров для Markdown.
+	HeaderFormatMD = "\n### %s%s\n\n"
+	// TableHeaderMD - шапка таблицы группы параметров для Markdown.
+	TableHeaderMD = `| Name | ENV | Type | Default | Description |` + "\n|------|-----|------|---------|-------------|"
+)
+
+// PrintConfig fetches config tags from obj struct and prints them in given format.
 func PrintConfig(obj interface{}, format string) {
-	defs := FetchConfigDefs(obj)
+	defs := FetchDefs(obj)
 	// .md .mk .json
 	if defs == nil {
 		return
@@ -45,8 +63,6 @@ func PrintConfig(obj interface{}, format string) {
 		}
 		fmt.Println(string(val))
 	case "md":
-		fmt.Println("| Name | ENV | Type | Default | Description |")
-		fmt.Println("|------|-----|------|---------|-------------|")
 		PrintConfigM(defs, false, "", "", "Main Options")
 	case "mk":
 		PrintConfigM(defs, true, "", "", "Main Options")
@@ -54,11 +70,11 @@ func PrintConfig(obj interface{}, format string) {
 
 }
 
-// PrintConfigM выводит конфиг в формате Makefile (onlyEnv) или MarkDown
-func PrintConfigM(defs []ConfigDef, onlyEnv bool, namePrefix, envPrefix, title string) {
+// PrintConfigM выводит конфиг в формате Makefile (onlyEnv) или MarkDown.
+func PrintConfigM(defs []Def, onlyEnv bool, namePrefix, envPrefix, title string) {
 
 	var fieldsFound bool
-	childs := []ConfigDef{}
+	childs := []Def{}
 	for _, def := range defs {
 		if onlyEnv && def.Env == "" {
 			continue
@@ -76,10 +92,10 @@ func PrintConfigM(defs []ConfigDef, onlyEnv bool, namePrefix, envPrefix, title s
 				if np != "" {
 					np = " {#" + np + "}"
 				}
-				fmt.Printf("| ## %s%s |\n", title, np)
-
+				fmt.Printf(HeaderFormatMD, title, np)
+				fmt.Println(TableHeaderMD)
 			} else {
-				fmt.Printf("\n# %s\n\n", title)
+				fmt.Printf(HeaderFormatMk, title)
 			}
 			if namePrefix != "" {
 				namePrefix = namePrefix + "."
@@ -99,20 +115,16 @@ func PrintConfigM(defs []ConfigDef, onlyEnv bool, namePrefix, envPrefix, title s
 		}
 		n := namePrefix + def.Name
 		e := envPrefix + def.Env
-		if d != "" {
-			d = fmt.Sprintf(" [%s]", d)
-		} else {
+		if d == "" {
 			d = "-"
 		}
 		if onlyEnv {
-			fmt.Printf("#- %s (%s)%s\n%-20s ?= %s\n",
-				def.Description, typ, d, e, def.Item.Default)
+			fmt.Printf(LineFormatMk, def.Description, typ, d, e, def.Item.Default)
 		} else {
 			if def.Env == "" {
 				e = "-"
 			}
-			fmt.Printf("| %-20s | %-20s | %s | %s | %s |\n", n, e,
-				typ, d, def.Description)
+			fmt.Printf(LineFormatMD, n, e, typ, d, def.Description)
 		}
 	}
 	for _, def := range childs {
@@ -123,7 +135,8 @@ func PrintConfigM(defs []ConfigDef, onlyEnv bool, namePrefix, envPrefix, title s
 	}
 }
 
-func FetchConfigDefs(obj interface{}) []ConfigDef {
+// FetchDefs fetch config definitions from Config struct.
+func FetchDefs(obj interface{}) []Def {
 
 	v := reflect.ValueOf(obj)
 
@@ -139,7 +152,7 @@ func FetchConfigDefs(obj interface{}) []ConfigDef {
 
 	t := v.Type()
 
-	rv := []ConfigDef{}
+	rv := []Def{}
 	for i := 0; i < t.NumField(); i++ {
 		field := t.Field(i)
 		fv := v.Field(i)
@@ -166,10 +179,10 @@ func FetchConfigDefs(obj interface{}) []ConfigDef {
 				continue
 			}
 			if def.IsGroup {
-				def.Group = &ConfigGroupDef{Items: FetchConfigDefs(fv.Interface())}
+				def.Group = &GroupDef{Items: FetchDefs(fv.Interface())}
 				rv = append(rv, *def)
 			} else {
-				siblings := FetchConfigDefs(fv.Interface())
+				siblings := FetchDefs(fv.Interface())
 				rv = append(rv, siblings...)
 			}
 		}
@@ -185,7 +198,7 @@ var reOptions = regexp.MustCompile(`choice:"([^"]*)"`)
 var tagFields = []string{"hidden", "env", "default", "long", "choice", "description", "group", "namespace", "env-namespace"}
 
 // Извлечение поддерживаемых тегов
-func fetchFields(tag reflect.StructTag) *ConfigDef {
+func fetchFields(tag reflect.StructTag) *Def {
 	rv := map[string]string{}
 	for _, field := range tagFields {
 		val, ok := tag.Lookup(field)
@@ -197,7 +210,7 @@ func fetchFields(tag reflect.StructTag) *ConfigDef {
 		}
 	}
 	if rv["group"] != "" {
-		return &ConfigDef{
+		return &Def{
 			Name:        rv["namespace"],
 			Env:         rv["env-namespace"],
 			Description: rv["group"],
@@ -219,11 +232,11 @@ func fetchFields(tag reflect.StructTag) *ConfigDef {
 			}
 		}
 	}
-	return &ConfigDef{
+	return &Def{
 		Name:        rv["long"],
 		Env:         rv["env"],
 		Description: rv["description"],
-		Item: &ConfigItemDef{
+		Item: &ItemDef{
 			Default: rv["default"],
 			Options: result,
 		},

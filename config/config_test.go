@@ -73,13 +73,14 @@ func TestClose(t *testing.T) {
 }
 
 func TestNoVersion(t *testing.T) {
-	err := Config{}.VersionRequested("", "")
+	err := EnableShowVersion{}.GoKitConfigShowVersionRequested()
 	assert.NoError(t, err)
 }
 
 func Example_versionRequested() {
-	cfg := Config{Version: true}
-	err := cfg.VersionRequested("app", "version")
+	cfg := EnableShowVersion{GoKitConfigShowVersionOption: true}
+	SetApplicationVersion("app", "version")
+	err := cfg.GoKitConfigShowVersionRequested()
 	fmt.Println(err)
 	// Output:
 	// app version
