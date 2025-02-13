@@ -218,11 +218,10 @@ func fetchFields(tag reflect.StructTag) *Def {
 		}
 	}
 	var result []string
-	if rv["choice"] != "" {
-		// choice:"off"     choice:"server"                                choice:"client"
-
-		// Ищем все совпадения в строке
-		matches := reOptions.FindAllStringSubmatch(string(tag), -1)
+	// Ищем все choice в строке
+	matches := reOptions.FindAllStringSubmatch(string(tag), -1)
+	if len(matches) > 0 {
+		// choice:"off" choice:"server" choice:"client"
 
 		// Извлекаем значения из групп
 		result = make([]string, 0, len(matches))
@@ -232,6 +231,7 @@ func fetchFields(tag reflect.StructTag) *Def {
 			}
 		}
 	}
+
 	return &Def{
 		Name:        rv["long"],
 		Env:         rv["env"],
