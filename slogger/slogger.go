@@ -1,6 +1,7 @@
 package slogger
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"os"
@@ -103,4 +104,22 @@ func LogLevelSet(lvl slog.Level) {
 // LogLevelSwitch switches the application log level between Debug and Info.
 func LogLevelSwitch() {
 	LogLevel.Set(slog.LevelDebug - LogLevel.Level())
+}
+
+type contextKey string
+
+const loggerKey contextKey = "logger"
+
+// NewContext returns a new context with the provided logger.
+func NewContext(ctx context.Context, logger *slog.Logger) context.Context {
+	return context.WithValue(ctx, loggerKey, logger)
+}
+
+// FromContext returns the logger from the provided context. If no logger it returns the default logger.
+func FromContext(ctx context.Context) *slog.Logger {
+	if logger, ok := ctx.Value(loggerKey).(*slog.Logger); ok {
+		return logger
+	}
+
+	return slog.Default()
 }
