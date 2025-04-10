@@ -41,7 +41,7 @@ var (
 	HeaderFormatMk = "\n# %s\n\n"
 
 	// LineFormatMD - формат строки параметра для Markdown.
-	LineFormatMD = "| %-20s | %-20s | %s | %s | %s |\n"
+	LineFormatMD = "| %-20s | %-20s | %s | `%s` | %s |\n"
 	// HeaderFormatMD - формат строки названия группы параметров для Markdown.
 	HeaderFormatMD = "\n### %s%s\n\n"
 	// TableHeaderMD - шапка таблицы группы параметров для Markdown.
