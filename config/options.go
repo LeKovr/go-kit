@@ -47,12 +47,12 @@ type EnableConfigDefGen struct {
 }
 
 type IsDefGenRequested interface {
-	GoKitConfigDefGenRequested(cfg interface{}) error
+	GoKitConfigDefGenRequested(cfg any) error
 }
 
 var _ IsDefGenRequested = (*EnableConfigDefGen)(nil)
 
-func (opt EnableConfigDefGen) GoKitConfigDefGenRequested(cfg interface{}) error {
+func (opt EnableConfigDefGen) GoKitConfigDefGenRequested(cfg any) error {
 	if opt.GoKitConfigDefGenOption != "" {
 		PrintConfig(cfg, opt.GoKitConfigDefGenOption)
 		return ErrConfGen
@@ -67,12 +67,12 @@ type EnableConfigDump struct {
 }
 
 type IsDumpRequested interface {
-	GoKitConfigDumpRequested(cfg interface{}) error
+	GoKitConfigDumpRequested(cfg any) error
 }
 
 var _ IsDumpRequested = (*EnableConfigDump)(nil)
 
-func (opt EnableConfigDump) GoKitConfigDumpRequested(cfg interface{}) error {
+func (opt EnableConfigDump) GoKitConfigDumpRequested(cfg any) error {
 	if opt.GoKitConfigDumpOption != "" {
 		if err := SaveJSON(opt.GoKitConfigDumpOption, cfg); err != nil {
 			return err
@@ -81,7 +81,7 @@ func (opt EnableConfigDump) GoKitConfigDumpRequested(cfg interface{}) error {
 	return nil
 }
 
-func ProcessOptions(cfg interface{}) error {
+func ProcessOptions(cfg any) error {
 
 	if v, ok := cfg.(IsShowVersionRequested); ok {
 		if err := v.GoKitConfigShowVersionRequested(); err != nil {
@@ -104,7 +104,7 @@ func ProcessOptions(cfg interface{}) error {
 const errStrClose = "failed to close file"
 
 // SaveJSON сохраняет данные в файл в формате JSON.
-func SaveJSON(fileName string, data interface{}) error {
+func SaveJSON(fileName string, data any) error {
 	file, err := os.Create(fileName) //nolint:gosec
 	if err != nil {
 		return fmt.Errorf("failed to create file %s: %w", fileName, err)

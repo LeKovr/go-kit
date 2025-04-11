@@ -41,7 +41,7 @@ func (e ErrBadArgsContainer) Error() string {
 }
 
 // Open loads flags from args (if given) or command flags and ENV otherwise
-func Open(cfg interface{}, args ...string) (err error) {
+func Open(cfg any, args ...string) (err error) {
 	p := flags.NewParser(cfg, flags.Default) //  HelpFlag | PrintErrors | PassDoubleDash
 	if len(args) == 0 {
 		_, err = p.Parse()

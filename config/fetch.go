@@ -41,7 +41,7 @@ var (
 	HeaderFormatMk = "\n# %s\n\n"
 
 	// LineFormatMD - формат строки параметра для Markdown.
-	LineFormatMD = "| %-20s | %-20s | %s | `%s` | %s |\n"
+	LineFormatMD = "| %-20s | %-20s | %s | %s | %s |\n"
 	// HeaderFormatMD - формат строки названия группы параметров для Markdown.
 	HeaderFormatMD = "\n### %s%s\n\n"
 	// TableHeaderMD - шапка таблицы группы параметров для Markdown.
@@ -49,7 +49,7 @@ var (
 )
 
 // PrintConfig fetches config tags from obj struct and prints them in given format.
-func PrintConfig(obj interface{}, format string) {
+func PrintConfig(obj any, format string) {
 	defs := FetchDefs(obj)
 	// .md .mk .json
 	if defs == nil {
@@ -115,8 +115,8 @@ func PrintConfigM(defs []Def, onlyEnv bool, namePrefix, envPrefix, title string)
 		}
 		n := namePrefix + def.Name
 		e := envPrefix + def.Env
-		if d == "" {
-			d = "-"
+		if d != "" {
+			d = "`" + d + "`"
 		}
 		if onlyEnv {
 			fmt.Printf(LineFormatMk, def.Description, typ, d, e, def.Item.Default)
@@ -124,7 +124,8 @@ func PrintConfigM(defs []Def, onlyEnv bool, namePrefix, envPrefix, title string)
 			if def.Env == "" {
 				e = "-"
 			}
-			fmt.Printf(LineFormatMD, n, e, typ, d, def.Description)
+			de := strings.ReplaceAll(d, "\n", `\n`)
+			fmt.Printf(LineFormatMD, n, e, typ, de, def.Description)
 		}
 	}
 	for _, def := range childs {
@@ -136,7 +137,7 @@ func PrintConfigM(defs []Def, onlyEnv bool, namePrefix, envPrefix, title string)
 }
 
 // FetchDefs fetch config definitions from Config struct.
-func FetchDefs(obj interface{}) []Def {
+func FetchDefs(obj any) []Def {
 
 	v := reflect.ValueOf(obj)
 
@@ -153,7 +154,7 @@ func FetchDefs(obj interface{}) []Def {
 	t := v.Type()
 
 	rv := []Def{}
-	for i := 0; i < t.NumField(); i++ {
+	for i := range t.NumField() {
 		field := t.Field(i)
 		fv := v.Field(i)
 		ft := field.Type
@@ -168,7 +169,7 @@ func FetchDefs(obj interface{}) []Def {
 			continue
 		}
 		if !def.IsGroup && ft.Kind() != reflect.Struct {
-			def.Item.Type = ft.Name()
+			def.Item.Type = ft.String()
 			rv = append(rv, *def)
 			continue
 		}
@@ -195,7 +196,7 @@ func FetchDefs(obj interface{}) []Def {
 var reOptions = regexp.MustCompile(`choice:"([^"]*)"`)
 
 // Список тегов, поддерживаемых https://github.com/jessevdk/go-flags/
-var tagFields = []string{"hidden", "env", "default", "long", "choice", "description", "group", "namespace", "env-namespace"}
+var tagFields = []string{"hidden", "env", "default", "long", "choice", "description", "group", "namespace", "env-namespace", "positional-arg-name"}
 
 // Извлечение поддерживаемых тегов
 func fetchFields(tag reflect.StructTag) *Def {
@@ -232,7 +233,7 @@ func fetchFields(tag reflect.StructTag) *Def {
 		}
 	}
 
-	return &Def{
+	def := Def{
 		Name:        rv["long"],
 		Env:         rv["env"],
 		Description: rv["description"],
@@ -241,4 +242,8 @@ func fetchFields(tag reflect.StructTag) *Def {
 			Options: result,
 		},
 	}
+	if def.Name == "" {
+		def.Name = rv["positional-arg-name"]
+	}
+	return &def
 }
