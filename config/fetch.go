@@ -36,7 +36,7 @@ type Def struct {
 
 var (
 	// LineFormatMk - формат строк параметра для Makefile.
-	LineFormatMk = "#- %s (%s) [%s]\n%-20s ?= %s\n"
+	LineFormatMk = "#- %s (%s) [%s]\n%-20s ?=%s\n"
 	// HeaderFormatMk - формат строки названия группы параметров для Makefile.
 	HeaderFormatMk = "\n# %s\n\n"
 
@@ -119,7 +119,11 @@ func PrintConfigM(defs []Def, onlyEnv bool, namePrefix, envPrefix, title string)
 			d = "`" + d + "`"
 		}
 		if onlyEnv {
-			fmt.Printf(LineFormatMk, def.Description, typ, d, e, def.Item.Default)
+			sp := ""
+			if def.Item.Default != "" {
+				sp = " "
+			}
+			fmt.Printf(LineFormatMk, def.Description, typ, d, e, sp+def.Item.Default)
 		} else {
 			if def.Env == "" {
 				e = "-"
