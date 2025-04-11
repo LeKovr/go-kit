@@ -1,9 +1,9 @@
-go 1.21
+go 1.23
 
 use (
 	./config
 	./logger
-	./ver
 	./server
 	./slogger
+	./ver
 )
