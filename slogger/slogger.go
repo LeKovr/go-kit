@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path"
 	"testing"
 
 	"github.com/lmittmann/tint"
@@ -50,14 +51,16 @@ func Setup(cfg Config, out io.Writer) error {
 
 	var handler slog.Handler
 	replaceAttr := func(groups []string, a slog.Attr) slog.Attr {
-		// Remove time from the output for predictable test output.
-		if a.Key == slog.TimeKey {
+		if a.Key == slog.TimeKey && cfg.TimeFormat == TimeDisableKey {
+			// Remove time from the output for predictable test output.
 			return slog.Attr{}
 		}
+		if a.Key == slog.SourceKey {
+			// Shorten source file path.
+			s := a.Value.Any().(*slog.Source)
+			s.File = path.Base(s.File)
+		}
 		return a
-	}
-	if cfg.TimeFormat != TimeDisableKey {
-		replaceAttr = nil
 	}
 	if useText {
 		if f, ok := out.(*os.File); ok && (isatty.IsTerminal(f.Fd()) || testing.Testing()) {
