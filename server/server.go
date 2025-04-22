@@ -115,10 +115,43 @@ func (srv *Service) WithShutdown(worker Worker) *Service {
 	return srv
 }
 
-// Run runs the service.
-func (srv Service) Run(ctxParent context.Context, workers ...Worker) error {
+// RunWorkers runs workers without HTTP servece.
+func (srv Service) RunWorkers(ctxParent context.Context, workers ...Worker) error {
 	ctx, stop := signal.NotifyContext(ctxParent, os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	cfg := srv.config
+
+	// start servers
+	g, gCtx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		<-gCtx.Done()
+		slog.Debug("Shutdown")
+		stop()
+		timedCtx, cancel := context.WithTimeout(ctx, cfg.GracePeriod)
+		defer cancel()
+		var err error
+		if srv.onShutdown != nil {
+			w := *srv.onShutdown
+			err = w(timedCtx)
+		}
+		return err
+	})
+	for _, worker := range workers {
+		w := worker
+		g.Go(func() error {
+			return w(gCtx)
+		})
+	}
+	if er := g.Wait(); er != nil && !errors.Is(er, http.ErrServerClosed) && !errors.Is(er, net.ErrClosed) {
+		return er
+	}
+	slog.Info("Exit")
+	return nil
+}
+
+// Run runs HTTP(s) service and workers.
+func (srv Service) Run(ctxParent context.Context, workers ...Worker) error {
 
 	cfg := srv.config
 
@@ -138,7 +171,7 @@ func (srv Service) Run(ctxParent context.Context, workers ...Worker) error {
 	server := &http.Server{
 		Handler: mux,
 		BaseContext: func(_ net.Listener) context.Context {
-			return ctx
+			return ctxParent
 		},
 		ReadTimeout:    cfg.ReadTimeout,
 		WriteTimeout:   cfg.WriteTimeout,
@@ -148,43 +181,26 @@ func (srv Service) Run(ctxParent context.Context, workers ...Worker) error {
 		http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	}
 
-	// start servers
-	g, gCtx := errgroup.WithContext(ctx)
+	httpWorkers := make([]Worker, 2+len(workers))
 	if srv.config.TLS.CertFile != "" {
-		slog.Debug("Start HTTPS service")
-		g.Go(func() error {
+		httpWorkers[0] = func(_ context.Context) error {
+			slog.Debug("Start HTTPS service")
 			return server.ServeTLS(listener, srv.config.TLS.CertFile, srv.config.TLS.KeyFile)
-		})
+		}
 	} else {
-		slog.Debug("Start HTTP service")
-		g.Go(func() error {
+		httpWorkers[0] = func(_ context.Context) error {
+			slog.Debug("Start HTTP service")
 			return server.Serve(listener)
-		})
+		}
 	}
-	g.Go(func() error {
-		<-gCtx.Done()
-		slog.Debug("Shutdown")
-		stop()
+	httpWorkers[1] = func(ctx context.Context) error {
+		<-ctx.Done()
 		timedCtx, cancel := context.WithTimeout(ctx, cfg.GracePeriod)
 		defer cancel()
-		var err error
-		if srv.onShutdown != nil {
-			w := *srv.onShutdown
-			err = w(timedCtx)
-		}
-		return errors.Join(err, server.Shutdown(timedCtx))
-	})
-	for _, worker := range workers {
-		w := worker
-		g.Go(func() error {
-			return w(gCtx)
-		})
+		return server.Shutdown(timedCtx)
 	}
-	if er := g.Wait(); er != nil && !errors.Is(er, http.ErrServerClosed) && !errors.Is(er, net.ErrClosed) {
-		return er
-	}
-	slog.Info("Exit")
-	return nil
+
+	return srv.RunWorkers(ctxParent, append(httpWorkers, workers...)...)
 }
 
 // WithAccessLog calculates estimate and prints HTTP request log.
