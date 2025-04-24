@@ -137,9 +137,8 @@ func (srv Service) RunWorkers(ctxParent context.Context, workers ...Worker) erro
 		}
 		return err
 	})
-	for i, worker := range workers {
+	for _, worker := range workers {
 		w := worker
-		slog.Debug("Run worker", "idx", i, "w", fmt.Sprintf("%+v", w))
 		g.Go(func() error {
 			return w(gCtx)
 		})
