@@ -137,8 +137,9 @@ func (srv Service) RunWorkers(ctxParent context.Context, workers ...Worker) erro
 		}
 		return err
 	})
-	for _, worker := range workers {
+	for i, worker := range workers {
 		w := worker
+		slog.Debug("Run worker", "idx", i, "w", fmt.Sprintf("%+v", w))
 		g.Go(func() error {
 			return w(gCtx)
 		})
@@ -181,26 +182,26 @@ func (srv Service) Run(ctxParent context.Context, workers ...Worker) error {
 		http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	}
 
-	httpWorkers := make([]Worker, 2+len(workers))
+	allWorkers := make([]Worker, 2)
 	if srv.config.TLS.CertFile != "" {
-		httpWorkers[0] = func(_ context.Context) error {
+		allWorkers[0] = func(_ context.Context) error {
 			slog.Debug("Start HTTPS service")
 			return server.ServeTLS(listener, srv.config.TLS.CertFile, srv.config.TLS.KeyFile)
 		}
 	} else {
-		httpWorkers[0] = func(_ context.Context) error {
+		allWorkers[0] = func(_ context.Context) error {
 			slog.Debug("Start HTTP service")
 			return server.Serve(listener)
 		}
 	}
-	httpWorkers[1] = func(ctx context.Context) error {
+	allWorkers[1] = func(ctx context.Context) error {
 		<-ctx.Done()
 		timedCtx, cancel := context.WithTimeout(ctx, cfg.GracePeriod)
 		defer cancel()
 		return server.Shutdown(timedCtx)
 	}
-
-	return srv.RunWorkers(ctxParent, append(httpWorkers, workers...)...)
+	allWorkers = append(allWorkers, workers...)
+	return srv.RunWorkers(ctxParent, allWorkers...)
 }
 
 // WithAccessLog calculates estimate and prints HTTP request log.
