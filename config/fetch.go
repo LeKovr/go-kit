@@ -115,16 +115,17 @@ func PrintConfigM(defs []Def, onlyEnv bool, namePrefix, envPrefix, title string)
 		}
 		n := namePrefix + def.Name
 		e := envPrefix + def.Env
-		if d != "" {
-			d = "`" + d + "`"
-		}
+		dLabel := d
 		if onlyEnv {
-			sp := ""
-			if def.Item.Default != "" {
-				sp = " "
+			if dLabel != "" {
+				dLabel = " " + dLabel
 			}
-			fmt.Printf(LineFormatMk, def.Description, typ, d, e, sp+def.Item.Default)
+			fmt.Printf(LineFormatMk, def.Description, typ, d, e, dLabel)
 		} else {
+			if d != "" {
+				// TODO: strings.ReplaceAll(d, "`", "\`")
+				d = "`" + d + "`"
+			}
 			if def.Env == "" {
 				e = "-"
 			}
