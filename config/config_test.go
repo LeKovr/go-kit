@@ -12,6 +12,11 @@ import (
 type MyConfig struct {
 	MyVar int `long:"var" description:"App config var"`
 }
+type BoolConfig struct {
+	BoolVar bool `long:"bool" env:"BOOL" description:"App config var"`
+}
+
+const BoolName = "BOOL"
 
 func TestOpen(t *testing.T) {
 	tests := []struct {
@@ -47,6 +52,40 @@ func TestOpenOsArgs(t *testing.T) {
 
 	// Restore original args
 	os.Args = a
+}
+
+func TestEnvBool(t *testing.T) {
+	// Save original args
+	a := os.Args
+	e := os.Getenv(BoolName)
+	//	os.Setenv(BoolName, "")
+	os.Args = []string{a[0]}
+
+	tests := []struct {
+		name   string
+		set    bool
+		val    string
+		result bool
+	}{
+		{"Not set => false", false, "", false},
+		{"Set => true", true, "", true},
+		{"Set true => true", true, "true", true},
+		{"Set false => false", true, "false", false},
+	}
+	for _, tt := range tests {
+		if tt.set {
+			os.Setenv(BoolName, tt.val)
+		}
+		cfg := &BoolConfig{}
+		err := Open(cfg)
+		assert.NoError(t, err)
+		assert.Equal(t, tt.result, cfg.BoolVar, tt.name)
+	}
+
+	// Restore original args
+	os.Setenv(BoolName, e)
+	os.Args = a
+
 }
 
 func TestClose(t *testing.T) {
