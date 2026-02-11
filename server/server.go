@@ -90,9 +90,8 @@ func (srv *Service) WithStatic(fSystem fs.FS) *Service {
 func (srv *Service) WithVersion(version string) *Service {
 	srv.mux.HandleFunc(srv.config.Version.Prefix, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", srv.config.Version.CType)
-		_, err := fmt.Fprintf(w, srv.config.Version.Format, version)
-		if err != nil {
-			slog.Error("Verion response", "err", err)
+		if _, err := fmt.Fprintf(w, srv.config.Version.Format, version); err != nil {
+			slog.Error("Version response", "err", err)
 		}
 	})
 	return srv
@@ -102,6 +101,15 @@ func (srv *Service) WithVersion(version string) *Service {
 func (srv *Service) Use(handler Handler) *Service {
 	srv.handlers = append(srv.handlers, handler)
 	return srv
+}
+
+// ServeMuxWithHandlers return mux joined with defined by Use handlers.
+func (srv Service) ServeMuxWithHandlers() http.Handler {
+	var mux http.Handler = srv.mux
+	for _, handler := range srv.handlers {
+		mux = handler(mux)
+	}
+	return mux
 }
 
 // ServeMux returns service muxer.
@@ -154,11 +162,7 @@ func (srv Service) RunWorkers(ctxParent context.Context, workers ...Worker) erro
 func (srv Service) Run(ctxParent context.Context, workers ...Worker) error {
 
 	cfg := srv.config
-
-	var mux http.Handler = srv.mux
-	for _, handler := range srv.handlers {
-		mux = handler(mux)
-	}
+	mux := srv.ServeMuxWithHandlers()
 	listener := srv.listener
 	if listener == nil {
 		var err error

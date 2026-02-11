@@ -2,8 +2,7 @@ package config
 
 import (
 	"errors"
-	"fmt"
-	"os"
+	"log/slog"
 
 	flags "github.com/jessevdk/go-flags"
 )
@@ -64,19 +63,18 @@ func Close(e error, exitFunc func(code int)) {
 		return
 	}
 	code := ExitError
-	if _, ok := e.(ErrBadArgsContainer); ok {
-		code = ExitBadArgs
-	}
-	switch e {
-	case ErrHelpRequest:
-		// help was printed in Parse
+	switch {
+	case errors.Is(e, ErrHelpRequest):
 		code = ExitHelp
-	case ErrPrinted:
-		// error was printed already
-	case ErrVersion, ErrConfGen:
+	case errors.Is(e, ErrVersion), errors.Is(e, ErrConfGen):
 		code = ExitNormal
+	case errors.Is(e, ErrPrinted):
+		// error was already printed
+	case errors.As(e, &ErrBadArgsContainer{}):
+		code = ExitBadArgs
 	default:
-		fmt.Fprintln(os.Stderr, e.Error())
+		slog.Error("Application error", "err", e)
 	}
+
 	exitFunc(code)
 }
