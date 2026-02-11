@@ -14,11 +14,7 @@
 [gl1]: https://img.shields.io/github/license/LeKovr/go-kit.svg
 [gl2]: https://github.com/LeKovr/go-kit/blob/master/LICENSE
 
-Пакет для сборки сервисов.
-
-## Пример
-
-[embedmd ]: # (example/main.go golang)
+Пакет для сборки сервиса, запускающего воркеры и, если нужен, HTTP-сервер.
 
 ## Использование
 

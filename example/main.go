@@ -38,6 +38,7 @@ var (
 
 func main() { Run(context.Background(), os.Exit) }
 
+// Run does whole work with ready for testing signature.
 func Run(ctx context.Context, exitFunc func(code int)) {
 
 	/* go-kit/config  */
@@ -47,7 +48,7 @@ func Run(ctx context.Context, exitFunc func(code int)) {
 	err := config.Open(&cfg)
 
 	defer func() {
-		config.Close(err, os.Exit)
+		config.Close(err, exitFunc)
 	}()
 
 	if err != nil {
@@ -67,7 +68,7 @@ func Run(ctx context.Context, exitFunc func(code int)) {
 
 	go ver.Check(repo, version)
 
-	/* go-kit/config  */
+	/* go-kit/server  */
 
 	// static pages server
 	hfs := os.DirFS(cfg.Root)

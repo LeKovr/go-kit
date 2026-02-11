@@ -1,6 +1,6 @@
 module github.com/LeKovr/go-kit/server
 
-go 1.21
+go 1.23
 
 require (
 	github.com/felixge/httpsnoop v1.0.4
