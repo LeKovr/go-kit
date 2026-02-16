@@ -11,19 +11,19 @@ import (
 )
 
 func TestSetup(t *testing.T) {
-	want := `level=WARN source=/opt/src/github-my.go/go-kit/slogger/slogger_test.go:42 msg=sample format=auto debug=true
-level=INFO source=/opt/src/github-my.go/go-kit/slogger/slogger_test.go:43 msg="info string"
-level=DEBUG source=/opt/src/github-my.go/go-kit/slogger/slogger_test.go:44 msg="debug string"
-level=WARN source=/opt/src/github-my.go/go-kit/slogger/slogger_test.go:42 msg=sample format=text debug=true
-level=INFO source=/opt/src/github-my.go/go-kit/slogger/slogger_test.go:43 msg="info string"
-level=DEBUG source=/opt/src/github-my.go/go-kit/slogger/slogger_test.go:44 msg="debug string"
+	want := `level=WARN source=slogger_test.go:42 msg=sample format=auto debug=true
+level=INFO source=slogger_test.go:43 msg="info string"
+level=DEBUG source=slogger_test.go:44 msg="debug string"
+level=WARN source=slogger_test.go:42 msg=sample format=text debug=true
+level=INFO source=slogger_test.go:43 msg="info string"
+level=DEBUG source=slogger_test.go:44 msg="debug string"
 {"level":"WARN","msg":"sample","format":"json","debug":true}
 {"level":"INFO","msg":"info string"}
 {"level":"DEBUG","msg":"debug string"}
 {"level":"WARN","msg":"sample","format":"auto","debug":false}
 {"level":"INFO","msg":"info string"}
-level=WARN source=/opt/src/github-my.go/go-kit/slogger/slogger_test.go:42 msg=sample format=text debug=false
-level=INFO source=/opt/src/github-my.go/go-kit/slogger/slogger_test.go:43 msg="info string"
+level=WARN source=slogger_test.go:42 msg=sample format=text debug=false
+level=INFO source=slogger_test.go:43 msg="info string"
 {"level":"WARN","msg":"sample","format":"json","debug":false}
 {"level":"INFO","msg":"info string"}
 `
