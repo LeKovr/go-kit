@@ -4,7 +4,7 @@ go 1.25.5
 
 require (
 	github.com/LeKovr/go-kit/config v0.5.5
-	github.com/LeKovr/go-kit/server v0.15.2
+	github.com/LeKovr/go-kit/server v0.16.0
 	github.com/LeKovr/go-kit/slogger v0.15.1
 	github.com/LeKovr/go-kit/ver v0.10.0
 )

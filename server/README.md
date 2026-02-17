@@ -25,10 +25,14 @@ Server Options:
       --srv.listen=              Addr and port which server listens at (default: :8080) [$SRV_LISTEN]
       --srv.maxheader=           MaxHeaderBytes
       --srv.rto=                 HTTP read timeout (default: 10s)
-      --srv.wto=                 HTTP write timeout (default: 60s)
+      --srv.wto=                 HTTP write timeout, '0' means disable (default: 60s)
+      --srv.rhto=                HTTP read header timeout (default: 10s)
+      --srv.ito=                 HTTP idle timeout (default: 10s)
       --srv.grace=               Stop grace period (default: 10s)
       --srv.ip_header=           HTTP Request Header for remote IP (default: X-Real-IP) [$SRV_IP_HEADER]
       --srv.user_header=         HTTP Request Header for username (default: X-Username) [$SRV_USER_HEADER]
+      --srv.access_log=          HTTP access log filename (default: STDOUT, '-' means disable) [$SRV_ACCESS_LOG]
+      --srv.etag                 Add ETAG in HTTP response [$SRV_ETAG]
 
 HTTPS Options:
       --srv.tls.cert=            CertFile for serving HTTPS instead HTTP [$SRV_TLS_CERT]
@@ -42,6 +46,5 @@ Version response Options:
 
 Help Options:
   -h, --help                     Show this help message
-
 
 ```

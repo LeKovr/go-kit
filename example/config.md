@@ -24,10 +24,14 @@
 | srv.listen           | SRV_LISTEN           | string | `:8080` | Addr and port which server listens at |
 | srv.maxheader        | -                    | int |  | MaxHeaderBytes |
 | srv.rto              | -                    | time.Duration | `10s` | HTTP read timeout |
-| srv.wto              | -                    | time.Duration | `60s` | HTTP write timeout |
+| srv.wto              | -                    | time.Duration | `60s` | HTTP write timeout, '0' means disable |
+| srv.rhto             | -                    | time.Duration | `10s` | HTTP read header timeout |
+| srv.ito              | -                    | time.Duration | `10s` | HTTP idle timeout |
 | srv.grace            | -                    | time.Duration | `10s` | Stop grace period |
 | srv.ip_header        | SRV_IP_HEADER        | string | `X-Real-IP` | HTTP Request Header for remote IP |
 | srv.user_header      | SRV_USER_HEADER      | string | `X-Username` | HTTP Request Header for username |
+| srv.access_log       | SRV_ACCESS_LOG       | string |  | HTTP access log filename (default: STDOUT, '-' means disable) |
+| srv.etag             | SRV_ETAG             | bool | `false` | Add ETAG in HTTP response |
 
 ### HTTPS Options {#srv.tls}
 

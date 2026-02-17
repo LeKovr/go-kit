@@ -50,7 +50,7 @@ build: $(PRG_DEST) config.md
 # Use: make build PRG_DEST=app-static
 %-static: CGO_ENABLED=0
 
-$(PRG_DEST): $(SOURCES)
+$(PRG_DEST): $(SOURCES) go.mod
 	@GOOS=$${TARGETOS} GOARCH=$${TARGETARCH} CGO_ENABLED=$(CGO_ENABLED) \
 	  $(GO) build -v -o $@ -ldflags \
 	 "$${LDFLAGS} -X main.version=$(APP_VERSION) -X main.repo=$(REPO)" \
