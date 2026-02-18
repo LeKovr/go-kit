@@ -1,6 +1,6 @@
 module github.com/LeKovr/go-kit/logger
 
-go 1.21
+go 1.23
 
 // Dependabot alerts #1
 require golang.org/x/sys v0.21.0 // indirect

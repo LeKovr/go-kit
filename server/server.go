@@ -150,11 +150,9 @@ func (srv *Service) WithNWorkers(n int, worker Worker) *Service {
 	return srv
 }
 
-// WithHTTPWorkers registers HTTP workers.
+// WithHTTPWorkers registers HTTP workers. Called by Run.
 func (srv *Service) WithHTTPWorkers() *Service {
-
 	cfg := srv.config
-	//mux := srv.ServeMuxWithHandlers()
 
 	// Creating a normal HTTP server
 	server := &http.Server{

@@ -1,6 +1,6 @@
 module example
 
-go 1.25.5
+go 1.23
 
 require (
 	github.com/LeKovr/go-kit/config v0.5.5

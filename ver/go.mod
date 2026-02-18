@@ -1,6 +1,6 @@
 module github.com/LeKovr/go-kit/ver
 
-go 1.21
+go 1.23
 
 require (
 	github.com/alecthomas/assert v1.0.0
