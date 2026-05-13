@@ -210,13 +210,14 @@ func (srv *Service) Run(ctx context.Context, workers ...Worker) error {
 	server.BaseContext = func(_ net.Listener) context.Context {
 		return ctx
 	}
-	if cfg.AccessLog != "" && cfg.AccessLog != AccessLogDisabled {
-		writer, err := os.OpenFile(cfg.AccessLog, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
-		if err != nil {
-			return err
+	if cfg.AccessLog != AccessLogDisabled {
+		if cfg.AccessLog != "" {
+			writer, err := os.OpenFile(cfg.AccessLog, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
+			if err != nil {
+				return err
+			}
+			srv.accessLogWriter = writer
 		}
-		srv.accessLogWriter = writer
-		defer writer.Close()
 		server.Handler = srv.accessLogHandler(server.Handler)
 	}
 
@@ -256,6 +257,14 @@ func (srv *Service) shutdownWorker(ctx context.Context) error {
 	timedCtx, cancel := context.WithTimeout(context.Background(), srv.config.GracePeriod)
 	defer cancel()
 	var err error
+
+	if srv.accessLogWriter != nil {
+		if f, ok := srv.accessLogWriter.(*os.File); ok {
+			f.Close()
+			slog.Info("Log closed")
+		}
+	}
+
 	if srv.onShutdown != nil {
 		w := *srv.onShutdown
 		err = w(timedCtx)

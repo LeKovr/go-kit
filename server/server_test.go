@@ -138,7 +138,6 @@ func TestWithAccessLog(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("access log test"))
-		cancel()
 	})
 	srv.ServeMux().HandleFunc("/", handler)
 
@@ -155,6 +154,9 @@ func TestWithAccessLog(t *testing.T) {
 		t.Fatalf("GET: %v", err)
 	}
 	defer resp.Body.Close()
+
+	// shutdown & close log file
+	cancel()
 
 	log, err := os.ReadFile(file)
 	if err != nil {
