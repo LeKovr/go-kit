@@ -1,6 +1,6 @@
 module github.com/LeKovr/go-kit/slogger
 
-go 1.23
+go 1.25
 
 require (
 	github.com/alecthomas/assert/v2 v2.10.0
