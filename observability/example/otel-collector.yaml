@@ -1,0 +1,44 @@
+receivers:
+  hostmetrics:
+    collection_interval: 10s
+    root_path: /hostfs
+    scrapers:
+      cpu:
+      memory:
+      network:
+      load:
+      processes:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+  resource:
+    attributes:
+      - key: deployment.environment
+        value: local
+        action: upsert
+
+exporters:
+  debug:
+    verbosity: normal
+  otlphttp/openobserve:
+    endpoint: http://openobserve:5080/api/default
+    headers:
+      Authorization: Basic ${env:OPENOBSERVE_AUTH_DIGEST}
+      stream-name: default
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [resource, batch]
+      exporters: [debug, otlphttp/openobserve]
+    metrics:
+      receivers: [otlp, hostmetrics]
+      processors: [resource, batch]
+      exporters: [debug, otlphttp/openobserve]

@@ -1,0 +1,29 @@
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.104.0
+    command: ["--config=/etc/otel-collector.yaml"]
+    env_file:
+      - .env
+    volumes:
+      - ./otel-collector.yaml:/etc/otel-collector.yaml:ro
+      - /:/hostfs:ro
+    ports:
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
+    depends_on:
+      - openobserve
+
+  openobserve:
+    image: public.ecr.aws/zinclabs/openobserve:latest
+    env_file:
+      - .env
+    environment:
+      ZO_ROOT_USER_EMAIL: ${ZO_ROOT_USER_EMAIL:?run make config first}
+      ZO_ROOT_USER_PASSWORD: ${ZO_ROOT_USER_PASSWORD:?run make config first}
+    ports:
+      - "127.0.0.1:5080:5080"
+    volumes:
+      - openobserve-data:/data
+
+volumes:
+  openobserve-data:
