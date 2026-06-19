@@ -14,12 +14,12 @@ import (
 
 // Config holds all config vars.
 type Config struct {
+	Server        server.Config        `group:"HTTP Options" namespace:"http" env-namespace:"HTTP"`
+	Observability observability.Config `group:"OpenTelemetry Options" namespace:"otel" env-namespace:"OTEL"`
+
 	config.EnableShowVersion
 	config.EnableConfigDefGen
 	config.EnableConfigDump
-
-	Server        server.Config        `group:"HTTP Options" namespace:"http" env-namespace:"HTTP"`
-	Observability observability.Config `group:"OpenTelemetry Options" namespace:"otel" env-namespace:"OTEL"`
 }
 
 const application = "observability-example"
