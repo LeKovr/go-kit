@@ -24,6 +24,8 @@
 * конструкторы `Meter` и `Tracer` для бизнес-метрик и прикладных span
 * logs остаются stdout/stderr, storage и delivery делает инфраструктура
 
+Архитектурная схема observability-сигналов: [architecture.md](architecture.md).
+
 `observability.New` создает providers, но не меняет глобальное состояние OpenTelemetry. Если приложению нужна поддержка сторонней instrumentation, которая берет providers через `otel.GetTracerProvider()` или `otel.GetMeterProvider()`, вызовите `obs.InstallGlobal()` в `main`.
 
 `OTEL_EXPORTER_OTLP_ENDPOINT` задается только URL-форматом, например `http://127.0.0.1:4317` для Collector на том же сервере или `https://collector.example.com:4317` для удаленного TLS endpoint.
