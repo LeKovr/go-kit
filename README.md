@@ -27,6 +27,7 @@ Set of usefull golang packages
 
 * [config](config/example)
 * [server](server/example)
+* [observability](observability/example)
 
 ## Использование
 
