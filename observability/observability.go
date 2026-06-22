@@ -51,7 +51,7 @@ type Service struct {
 
 // New creates OpenTelemetry providers for traces and metrics.
 func New(ctx context.Context, cfg Config, serviceName, serviceVersion string) (*Service, error) {
-	srv := &Service{
+	svc := &Service{
 		serviceName:    serviceName,
 		serviceVersion: serviceVersion,
 		config:         cfg,
@@ -60,7 +60,7 @@ func New(ctx context.Context, cfg Config, serviceName, serviceVersion string) (*
 	}
 
 	if !cfg.EnableTraces && !cfg.EnableMetrics {
-		return srv, nil
+		return svc, nil
 	}
 
 	r, err := newResource(cfg, serviceName, serviceVersion)
@@ -74,27 +74,27 @@ func New(ctx context.Context, cfg Config, serviceName, serviceVersion string) (*
 			return nil, err
 		}
 
-		srv.meterProvider = meterProvider
-		srv.shutdowns = append(srv.shutdowns, meterProvider.Shutdown)
+		svc.meterProvider = meterProvider
+		svc.shutdowns = append(svc.shutdowns, meterProvider.Shutdown)
 	}
 
 	if cfg.EnableTraces {
 		tracerProvider, err := newTracerProvider(ctx, cfg, r)
 		if err != nil {
-			return nil, errors.Join(err, srv.Shutdown(ctx))
+			return nil, errors.Join(err, svc.Shutdown(ctx))
 		}
 
-		srv.tracerProvider = tracerProvider
-		srv.shutdowns = append(srv.shutdowns, tracerProvider.Shutdown)
+		svc.tracerProvider = tracerProvider
+		svc.shutdowns = append(svc.shutdowns, tracerProvider.Shutdown)
 	}
 
 	if cfg.EnableMetrics && cfg.EnableGoRuntimeMetrics {
-		if err := otelruntime.Start(otelruntime.WithMeterProvider(srv.meterProvider)); err != nil {
-			return nil, errors.Join(err, srv.Shutdown(ctx))
+		if err := otelruntime.Start(otelruntime.WithMeterProvider(svc.meterProvider)); err != nil {
+			return nil, errors.Join(err, svc.Shutdown(ctx))
 		}
 	}
 
-	return srv, nil
+	return svc, nil
 }
 
 func newMeterProvider(ctx context.Context, cfg Config, r *resource.Resource) (*sdkmetric.MeterProvider, error) {
@@ -133,18 +133,13 @@ func newTracerProvider(ctx context.Context, cfg Config, r *resource.Resource) (*
 // InstallGlobal configures this service as the process-wide OpenTelemetry
 // provider set. It returns a restore function useful for tests and embedded
 // applications.
-func (srv *Service) InstallGlobal() func() {
+func (svc *Service) InstallGlobal() func() {
 	previousTracerProvider := otel.GetTracerProvider()
 	previousMeterProvider := otel.GetMeterProvider()
 	previousPropagator := otel.GetTextMapPropagator()
 
-	if srv.tracerProvider != nil {
-		otel.SetTracerProvider(srv.tracerProvider)
-	}
-	if srv.meterProvider != nil {
-		otel.SetMeterProvider(srv.meterProvider)
-	}
-
+	otel.SetTracerProvider(svc.tracerProviderOrNoop())
+	otel.SetMeterProvider(svc.meterProviderOrNoop())
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
 		propagation.TraceContext{},
 		propagation.Baggage{},
@@ -158,14 +153,14 @@ func (srv *Service) InstallGlobal() func() {
 }
 
 // Shutdown flushes and stops OpenTelemetry providers.
-func (srv Service) Shutdown(ctx context.Context) error {
-	if srv.config.ShutdownTimeout > 0 {
+func (svc Service) Shutdown(ctx context.Context) error {
+	if svc.config.ShutdownTimeout > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, srv.config.ShutdownTimeout)
+		ctx, cancel = context.WithTimeout(ctx, svc.config.ShutdownTimeout)
 		defer cancel()
 	}
 
-	return shutdownAll(ctx, srv.shutdowns...)
+	return shutdownAll(ctx, svc.shutdowns...)
 }
 
 func shutdownAll(ctx context.Context, funcs ...func(context.Context) error) error {
@@ -185,21 +180,29 @@ func shutdownAll(ctx context.Context, funcs ...func(context.Context) error) erro
 }
 
 // Meter returns a meter for application-specific instruments.
-func (srv Service) Meter(name string, opts ...otelmetric.MeterOption) otelmetric.Meter {
-	if srv.meterProvider != nil {
-		return srv.meterProvider.Meter(name, opts...)
-	}
-
-	return noopmetric.NewMeterProvider().Meter(name, opts...)
+func (svc Service) Meter(name string, opts ...otelmetric.MeterOption) otelmetric.Meter {
+	return svc.meterProviderOrNoop().Meter(name, opts...)
 }
 
 // Tracer returns a tracer for application-specific spans.
-func (srv Service) Tracer(name string, opts ...trace.TracerOption) trace.Tracer {
-	if srv.tracerProvider != nil {
-		return srv.tracerProvider.Tracer(name, opts...)
+func (svc Service) Tracer(name string, opts ...trace.TracerOption) trace.Tracer {
+	return svc.tracerProviderOrNoop().Tracer(name, opts...)
+}
+
+func (svc Service) meterProviderOrNoop() otelmetric.MeterProvider {
+	if svc.meterProvider != nil {
+		return svc.meterProvider
 	}
 
-	return nooptrace.NewTracerProvider().Tracer(name, opts...)
+	return noopmetric.NewMeterProvider()
+}
+
+func (svc Service) tracerProviderOrNoop() trace.TracerProvider {
+	if svc.tracerProvider != nil {
+		return svc.tracerProvider
+	}
+
+	return nooptrace.NewTracerProvider()
 }
 
 func newResource(cfg Config, serviceName, serviceVersion string) (*resource.Resource, error) {

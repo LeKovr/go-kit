@@ -9,16 +9,18 @@ import (
 
 	"go.opentelemetry.io/otel"
 	otelmetric "go.opentelemetry.io/otel/metric"
+	noopmetric "go.opentelemetry.io/otel/metric/noop"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	oteltrace "go.opentelemetry.io/otel/trace"
+	nooptrace "go.opentelemetry.io/otel/trace/noop"
 )
 
 func TestServiceShutdownWithoutProviders(t *testing.T) {
-	var srv Service
-	if err := srv.Shutdown(context.Background()); err != nil {
+	var svc Service
+	if err := svc.Shutdown(context.Background()); err != nil {
 		t.Fatalf("shutdown: %v", err)
 	}
 }
@@ -28,7 +30,7 @@ func TestServiceShutdownRunsAllHooksAndJoinsErrors(t *testing.T) {
 	secondErr := errors.New("second shutdown")
 	var calls []string
 
-	srv := Service{
+	svc := Service{
 		shutdowns: []func(context.Context) error{
 			func(context.Context) error {
 				calls = append(calls, "first")
@@ -42,7 +44,7 @@ func TestServiceShutdownRunsAllHooksAndJoinsErrors(t *testing.T) {
 		},
 	}
 
-	err := srv.Shutdown(context.Background())
+	err := svc.Shutdown(context.Background())
 	if !errors.Is(err, firstErr) {
 		t.Fatalf("shutdown error does not include first error: %v", err)
 	}
@@ -65,11 +67,11 @@ func TestServiceInstallGlobalRestoresPreviousProviders(t *testing.T) {
 		_ = meterProvider.Shutdown(context.Background())
 	}()
 
-	srv := Service{
+	svc := Service{
 		tracerProvider: tracerProvider,
 		meterProvider:  meterProvider,
 	}
-	restore := srv.InstallGlobal()
+	restore := svc.InstallGlobal()
 
 	if otel.GetTracerProvider() != tracerProvider {
 		t.Fatal("global tracer provider was not installed")
@@ -106,7 +108,7 @@ func TestValidateOTLPEndpointURL(t *testing.T) {
 }
 
 func TestNewWithTracesAndMetricsDisabledSkipsExporterSetup(t *testing.T) {
-	srv, err := New(context.Background(), Config{
+	svc, err := New(context.Background(), Config{
 		OTLPEndpoint:   "not-a-url",
 		EnableTraces:   false,
 		EnableMetrics:  false,
@@ -116,10 +118,10 @@ func TestNewWithTracesAndMetricsDisabledSkipsExporterSetup(t *testing.T) {
 		t.Fatalf("new service: %v", err)
 	}
 
-	if srv.tracerProvider == nil {
+	if svc.tracerProvider == nil {
 		t.Fatal("tracer provider should be set to noop")
 	}
-	if srv.meterProvider == nil {
+	if svc.meterProvider == nil {
 		t.Fatal("meter provider should be set to noop")
 	}
 }
@@ -135,8 +137,12 @@ func TestServiceHTTPMiddlewareCreatesSpan(t *testing.T) {
 	}()
 
 	var gotSpan bool
-	srv := Service{serviceName: "test-service"}
-	handler := srv.HTTPMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	svc := Service{
+		serviceName:    "test-service",
+		tracerProvider: provider,
+		meterProvider:  noopmetric.NewMeterProvider(),
+	}
+	handler := svc.HTTPMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotSpan = oteltrace.SpanContextFromContext(r.Context()).IsValid()
 		w.WriteHeader(http.StatusAccepted)
 	}))
@@ -171,8 +177,12 @@ func TestServiceHTTPMiddlewareUsesConfiguredServiceName(t *testing.T) {
 		_ = provider.Shutdown(context.Background())
 	}()
 
-	srv := Service{serviceName: "test-service"}
-	handler := srv.HTTPMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	svc := Service{
+		serviceName:    "test-service",
+		tracerProvider: provider,
+		meterProvider:  noopmetric.NewMeterProvider(),
+	}
+	handler := svc.HTTPMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusAccepted)
 	}))
 
@@ -198,11 +208,12 @@ func TestHTTPMiddlewareRecordsBaseMetrics(t *testing.T) {
 		_ = provider.Shutdown(context.Background())
 	}()
 
-	srv := Service{
-		serviceName:   "test-service",
-		meterProvider: provider,
+	svc := Service{
+		serviceName:    "test-service",
+		tracerProvider: nooptrace.NewTracerProvider(),
+		meterProvider:  provider,
 	}
-	handler := srv.HTTPMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := svc.HTTPMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok"))
 	}))
 
@@ -235,14 +246,14 @@ func TestHTTPMiddlewareWithTracesDisabledDoesNotUseGlobalProvider(t *testing.T) 
 		_ = provider.Shutdown(context.Background())
 	}()
 
-	srv, err := New(context.Background(), Config{
+	svc, err := New(context.Background(), Config{
 		EnableTraces:  false,
 		EnableMetrics: false,
 	}, "test-service", "test-version")
 	if err != nil {
 		t.Fatalf("new service: %v", err)
 	}
-	handler := srv.HTTPMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := svc.HTTPMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if oteltrace.SpanContextFromContext(r.Context()).IsValid() {
 			t.Fatal("disabled traces should not create a span")
 		}
@@ -271,14 +282,14 @@ func TestHTTPMiddlewareWithMetricsDisabledDoesNotUseGlobalProvider(t *testing.T)
 		_ = provider.Shutdown(context.Background())
 	}()
 
-	srv, err := New(context.Background(), Config{
+	svc, err := New(context.Background(), Config{
 		EnableTraces:  false,
 		EnableMetrics: false,
 	}, "test-service", "test-version")
 	if err != nil {
 		t.Fatalf("new service: %v", err)
 	}
-	handler := srv.HTTPMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := svc.HTTPMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok"))
 	}))
 
@@ -303,8 +314,8 @@ func TestServiceMeterRecordsBusinessMetric(t *testing.T) {
 		_ = provider.Shutdown(context.Background())
 	}()
 
-	srv := Service{meterProvider: provider}
-	meter := srv.Meter("test/business")
+	svc := Service{meterProvider: provider}
+	meter := svc.Meter("test/business")
 	processed, err := meter.Int64Counter("business.processed", otelmetric.WithDescription("Processed business events."))
 	if err != nil {
 		t.Fatalf("create counter: %v", err)
@@ -332,8 +343,8 @@ func TestServiceMeterWithoutProviderDoesNotUseGlobalProvider(t *testing.T) {
 		_ = provider.Shutdown(context.Background())
 	}()
 
-	var srv Service
-	meter := srv.Meter("test/business")
+	var svc Service
+	meter := svc.Meter("test/business")
 	processed, err := meter.Int64Counter("business.processed")
 	if err != nil {
 		t.Fatalf("create counter: %v", err)
@@ -361,8 +372,12 @@ func TestHTTPMiddlewareIgnoresDefaultPaths(t *testing.T) {
 		_ = provider.Shutdown(context.Background())
 	}()
 
-	srv := Service{serviceName: "test-service"}
-	handler := srv.HTTPMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	svc := Service{
+		serviceName:    "test-service",
+		tracerProvider: provider,
+		meterProvider:  noopmetric.NewMeterProvider(),
+	}
+	handler := svc.HTTPMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if oteltrace.SpanContextFromContext(r.Context()).IsValid() {
 			t.Fatal("ignored request should not have a valid span")
 		}
