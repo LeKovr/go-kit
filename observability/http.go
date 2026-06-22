@@ -36,28 +36,24 @@ func WithSpanNameFormatter(formatter func(string, *http.Request) string) HTTPOpt
 }
 
 // HTTPMiddleware returns a net/http middleware compatible with server.Handler.
-func (srv Service) HTTPMiddleware(opts ...HTTPOption) func(http.Handler) http.Handler {
+func (svc Service) HTTPMiddleware(opts ...HTTPOption) func(http.Handler) http.Handler {
 	cfg := defaultHTTPConfig()
 	for _, opt := range opts {
 		opt(&cfg)
 	}
 
 	otelOpts := []otelhttp.Option{
-		otelhttp.WithServerName(srv.serviceName),
+		otelhttp.WithServerName(svc.serviceName),
 		otelhttp.WithSpanNameFormatter(cfg.spanNameFormatter),
 		otelhttp.WithFilter(func(r *http.Request) bool {
 			_, ignored := cfg.ignoredPaths[r.URL.Path]
 			return !ignored
 		}),
-	}
-	if srv.tracerProvider != nil {
-		otelOpts = append(otelOpts, otelhttp.WithTracerProvider(srv.tracerProvider))
-	}
-	if srv.meterProvider != nil {
-		otelOpts = append(otelOpts, otelhttp.WithMeterProvider(srv.meterProvider))
+		otelhttp.WithTracerProvider(svc.tracerProviderOrNoop()),
+		otelhttp.WithMeterProvider(svc.meterProviderOrNoop()),
 	}
 
-	otelMiddleware := otelhttp.NewMiddleware(srv.serviceName, otelOpts...)
+	otelMiddleware := otelhttp.NewMiddleware(svc.serviceName, otelOpts...)
 
 	return func(next http.Handler) http.Handler {
 		return otelMiddleware(next)
