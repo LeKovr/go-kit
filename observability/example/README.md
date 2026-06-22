@@ -1,45 +1,23 @@
 # observability example
 
-Пример показывает базовый контракт:
+Минимальный пример HTTP-сервиса с observability:
 
-* приложение на Go отправляет traces и metrics в OTLP endpoint;
-* приложение пишет logs в stdout/stderr;
-* `observability.Service` настраивает OpenTelemetry providers и HTTP middleware;
-* OpenTelemetry Collector принимает telemetry, добавляет infra attributes, батчит и отправляет данные в выбранное хранилище.
-* Collector можно расширить profiling данными, чтобы собирать базовые серверные metrics: CPU, RAM, network, load и process count через `hostmetrics` receiver.
-
-В этом примере backendом выбран OpenObserve потому, что он легковесный и умеет работать сразу и с логами, и с метриками, и с трейсами. Код приложения не зависит от OpenObserve.
+* `observability.Service` настраивает traces и metrics;
+* HTTP middleware собирает server spans и HTTP metrics;
+* handler добавляет custom span, custom metric и исходящий HTTP-вызов.
 
 ## Запуск
 
-Из каталога `observability/example`:
-
 ```sh
 make up
-```
-
-Запустить приложение:
-
-```sh
 go run . --otel.enable_traces --otel.enable_metrics
 ```
 
-`OTEL_EXPORTER_OTLP_ENDPOINT` задается только URL-форматом, например `http://127.0.0.1:4317` для Collector на том же сервере или `https://collector.example.com:4317` для TLS endpoint. Формат `host:port` не поддерживается.
-
-Traces и metrics выключены по умолчанию, чтобы простой локальный запуск не пытался отправлять telemetry в Collector. Включить их можно независимо:
+Сделайте несколько запросов, чтобы появились метрики.
 
 ```sh
-go run . --otel.enable_traces
-go run . --otel.enable_metrics
+curl -v http://localhost:8080/demo
 ```
-
-Проверить HTTP handler:
-
-```sh
-curl -v http://localhost:8080/hello
-```
-
-Сделайте несколько запросов, чтобы появились spans и HTTP metrics.
 
 OpenObserve UI:
 
@@ -47,15 +25,10 @@ OpenObserve UI:
 http://localhost:5080
 ```
 
-Логин:
+Логин и пароль лежат в `.env`:
 
 ```sh
 grep ZO_ROOT_USER_EMAIL .env
-```
-
-Пароль:
-
-```sh
 grep ZO_ROOT_USER_PASSWORD .env
 ```
 
@@ -63,12 +36,6 @@ grep ZO_ROOT_USER_PASSWORD .env
 
 ```sh
 docker compose logs -f otel-collector
-```
-
-App metrics по умолчанию отключены вместе с общим metrics-сигналом. Включить их можно флагом:
-
-```sh
-go run . --otel.enable_metrics
 ```
 
 Базовый набор metrics, который должен появиться после запросов:
@@ -96,27 +63,7 @@ go run . --otel.enable_metrics --otel.enable_go_runtime_metrics
 | `go.processor.limit`    | Лимит процессоров, доступных Go runtime.                |
 | `go.schedule.duration`  | Время задержки планирования goroutine.                  |
 
-Если добавить `hostmetrics` receiver в `otel-collector.yaml` и подключить его к `metrics` pipeline, Collector начнет собирать системные метрики хоста:
-
-```yaml
-receivers:
-  hostmetrics:
-    collection_interval: 10s
-    root_path: /hostfs
-    scrapers:
-      cpu:
-      memory:
-      network:
-      load:
-      processes:
-
-service:
-  pipelines:
-    metrics:
-      receivers: [otlp, hostmetrics]
-```
-
-В OpenObserve после этого добавятся метрики:
+В `otel-collector.yaml` добавлен receiver `hostmetrics`, который собирает системные метрики хоста:
 
 | Metric                        | Описание                                                      |
 |-------------------------------|---------------------------------------------------------------|
@@ -133,34 +80,65 @@ service:
 | `system.processes.count`      | Количество процессов по состояниям.                           |
 | `system.processes.created`    | Количество созданных процессов.                               |
 
-
-## Другие backend-ы
-
-Go-приложение не нужно менять при переходе с OpenObserve на другое хранилище. Меняется только конфиг OpenTelemetry Collector.
-
-Collector уже собирает CPU, RAM, network, load и process count с сервера через `hostmetrics`. Его можно расширить disk/filesystem/paging metrics или profiling pipeline, если backend умеет принимать profiles. Эти сигналы не требуют изменений в коде приложения: сервис по-прежнему отправляет свои traces/metrics в OTLP и пишет logs в stdout/stderr, а серверная telemetry собирается на уровне инфраструктуры.
-
-Примеры направлений:
-
-* Loki: отправлять logs из Collector/Filelog/Journald receiver в `loki` exporter, а traces/metrics оставить в других pipeline.
-* Prometheus: включить `prometheus` exporter в metrics pipeline, чтобы Prometheus scrape-ил Collector endpoint.
-* VictoriaMetrics: отправлять metrics через `prometheusremotewrite` exporter в VictoriaMetrics.
-* Tempo: отправлять traces через `otlp` exporter в Tempo.
-* Jaeger: отправлять traces через OTLP или Jaeger exporter, в зависимости от версии стека.
-* Datadog/New Relic/Honeycomb: заменить exporter в Collector на vendor-specific exporter или OTLP endpoint вендора.
-
-Граница ответственности остается такой:
+Trace для `GET /demo` содержит:
 
 ```text
-Go app
-  traces/metrics -> OTLP Collector endpoint
-  logs           -> stdout/stderr
+HTTP server span for /demo
+├── demo.calculate
+└── HTTP GET
+```
 
-OpenTelemetry Collector
-  receivers   -> otlp/filelog/journald/...
-  processors  -> resource/batch/filter/sampling/...
-  exporters   -> OpenObserve/Loki/Prometheus/VictoriaMetrics/Tempo/Datadog/...
-  hostmetrics -> CPU/RAM/network/load/process metrics, optional disk/profiles
+## Главное в коде
+
+`observability.New` создает providers, а middleware подключает HTTP instrumentation:
+
+```go
+obs, err := observability.New(ctx, cfg.Observability, application, version)
+srv.Use(obs.HTTPMiddleware())
+```
+
+Custom metric создается один раз в конструкторе handler-а:
+
+```go
+requests, err := meter.Int64Counter(
+    "demo.custom.requests",
+    metric.WithDescription("Number of custom demo handler calls."),
+    metric.WithUnit("{request}"),
+)
+```
+
+Custom span создается вокруг своего участка кода:
+
+```go
+_, span := h.tracer.Start(ctx, "demo.calculate")
+defer span.End()
+
+span.SetAttributes(attribute.String("demo.step", "calculate"))
+```
+
+Custom metric:
+
+```go
+h.requests.Add(ctx, 1, metric.WithAttributes(
+    attribute.String("demo.operation", "request"),
+))
+```
+
+Внешний HTTP API в примере имитируется через `httptest.NewServer`. В реальном сервисе здесь будет URL вашей зависимости.
+
+`obs.InstallGlobal()` делает providers доступными для стандартной instrumentation. Поэтому `otelhttp.NewTransport` создает span для исходящего HTTP-запроса, а `r.Context()` связывает его с текущим server span:
+
+```go
+restore := obs.InstallGlobal()
+defer restore()
+
+client := &http.Client{
+    Transport: otelhttp.NewTransport(http.DefaultTransport),
+    Timeout:   3 * time.Second,
+}
+
+req, err := http.NewRequestWithContext(ctx, http.MethodGet, h.externalURL, nil)
+resp, err := h.client.Do(req)
 ```
 
 ## Остановка
