@@ -10,6 +10,7 @@ import (
 	"go.opentelemetry.io/otel"
 	otelmetric "go.opentelemetry.io/otel/metric"
 	noopmetric "go.opentelemetry.io/otel/metric/noop"
+	"go.opentelemetry.io/otel/propagation"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/trace"
@@ -269,6 +270,51 @@ func TestHTTPMiddlewareWithTracesDisabledDoesNotUseGlobalProvider(t *testing.T) 
 	}
 	if spans := exporter.GetSpans(); len(spans) != 0 {
 		t.Fatalf("expected no spans, got %d", len(spans))
+	}
+}
+
+func TestHTTPMiddlewareUsesServicePropagator(t *testing.T) {
+	exporter := tracetest.NewInMemoryExporter()
+	provider := trace.NewTracerProvider(trace.WithSyncer(exporter))
+	previousPropagator := otel.GetTextMapPropagator()
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator())
+	defer func() {
+		otel.SetTextMapPropagator(previousPropagator)
+		_ = provider.Shutdown(context.Background())
+	}()
+
+	svc := Service{
+		serviceName:    "test-service",
+		tracerProvider: provider,
+		meterProvider:  noopmetric.NewMeterProvider(),
+	}
+	handler := svc.HTTPMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/propagated", nil)
+	req.Header.Set("traceparent", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("unexpected status: %d", rec.Code)
+	}
+
+	spans := exporter.GetSpans()
+	if len(spans) != 1 {
+		t.Fatalf("expected one span, got %d", len(spans))
+	}
+
+	parent := spans[0].Parent
+	if !parent.IsValid() {
+		t.Fatal("expected propagated parent span context")
+	}
+	if got, want := parent.TraceID().String(), "4bf92f3577b34da6a3ce929d0e0e4736"; got != want {
+		t.Fatalf("unexpected parent trace id: %s, want %s", got, want)
+	}
+	if got, want := parent.SpanID().String(), "00f067aa0ba902b7"; got != want {
+		t.Fatalf("unexpected parent span id: %s, want %s", got, want)
 	}
 }
 

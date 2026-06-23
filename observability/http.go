@@ -51,6 +51,7 @@ func (svc Service) HTTPMiddleware(opts ...HTTPOption) func(http.Handler) http.Ha
 		}),
 		otelhttp.WithTracerProvider(svc.tracerProviderOrNoop()),
 		otelhttp.WithMeterProvider(svc.meterProviderOrNoop()),
+		otelhttp.WithPropagators(svc.propagator()),
 	}
 
 	otelMiddleware := otelhttp.NewMiddleware(svc.serviceName, otelOpts...)
