@@ -140,10 +140,7 @@ func (svc *Service) InstallGlobal() func() {
 
 	otel.SetTracerProvider(svc.tracerProviderOrNoop())
 	otel.SetMeterProvider(svc.meterProviderOrNoop())
-	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
-		propagation.TraceContext{},
-		propagation.Baggage{},
-	))
+	otel.SetTextMapPropagator(svc.propagator())
 
 	return func() {
 		otel.SetTracerProvider(previousTracerProvider)
@@ -203,6 +200,13 @@ func (svc Service) tracerProviderOrNoop() trace.TracerProvider {
 	}
 
 	return nooptrace.NewTracerProvider()
+}
+
+func (svc Service) propagator() propagation.TextMapPropagator {
+	return propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{},
+		propagation.Baggage{},
+	)
 }
 
 func newResource(cfg Config, serviceName, serviceVersion string) (*resource.Resource, error) {
