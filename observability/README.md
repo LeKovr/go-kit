@@ -14,31 +14,46 @@
 [gl1]: https://img.shields.io/github/license/LeKovr/go-kit.svg
 [gl2]: https://github.com/LeKovr/go-kit/blob/master/LICENSE
 
-Пакет включает базовую observability для Go-сервисов:
+Пакет добавляет observability в Go-сервис через OpenTelemetry:
 
-* traces в OTLP endpoint
-* metrics в OTLP endpoint
+* traces и metrics с экспортом в OTLP endpoint
 * W3C propagation (`traceparent`, `baggage`)
-* Go runtime metrics через `go.opentelemetry.io/contrib/instrumentation/runtime`
-* HTTP server traces/metrics через `otelhttp` middleware
-* конструкторы `Meter` и `Tracer` для бизнес-метрик и прикладных span
-* logs остаются stdout/stderr, storage и delivery делает инфраструктура
+* Go runtime metrics
+* HTTP middleware на базе `otelhttp`
+* `Meter` и `Tracer` для бизнес-метрик и прикладных span
 
-Архитектурная схема observability-сигналов: [architecture.md](architecture.md).
+## Использование
 
-`observability.New` создает providers, но не меняет глобальное состояние OpenTelemetry. Если приложению нужна поддержка сторонней instrumentation, которая берет providers через `otel.GetTracerProvider()` или `otel.GetMeterProvider()`, вызовите `obs.InstallGlobal()` в `main`.
+```go
+obs, err := observability.New(ctx, cfg.Observability, application, version)
+if err != nil {
+	return err
+}
+defer obs.Shutdown(ctx)
 
-`OTEL_EXPORTER_OTLP_ENDPOINT` задается только URL-форматом, например `http://127.0.0.1:4317` для Collector на том же сервере или `https://collector.example.com:4317` для удаленного TLS endpoint.
+srv := server.New(cfg.Server)
+srv.Use(obs.HTTPMiddleware())
+```
 
-Traces и metrics выключены по умолчанию, чтобы простой локальный запуск не пытался отправлять telemetry в Collector. Их можно включить независимо через `--otel.enable_traces` / `OTEL_ENABLE_TRACES=true` и `--otel.enable_metrics` / `OTEL_ENABLE_METRICS=true`.
+Полный пример запуска с OpenTelemetry Collector и OpenObserve см. в [example](example)
 
-Metrics экспортируются периодически. Интервал задается `--otel.metric_interval` и по умолчанию равен `10s`.
-Go runtime metrics включаются через `--otel.enable_go_runtime_metrics` или `OTEL_ENABLE_GO_RUNTIME_METRICS=true`. Этот флаг работает только если metrics включены.
+## Архитектура
 
-## Контракт
+Общая схема передачи observability-сигналов от Go-сервиса до Collector и backend-ов показана в [схеме observability-сигналов](architecture.md).
 
-Приложение не знает про `OpenObserve`, `Loki`, `Tempo`, `VictoriaMetrics`, `Prometheus` или `Datadog`. Оно отправляет `traces`/`metrics` в OTLP endpoint и пишет structured logs в stdout/stderr.
+## Настройки
 
-OpenTelemetry Collector принимает telemetry, добавляет infra attributes, батчит, ретраит, фильтрует, семплирует и отправляет данные в выбранное хранилище.
+`Traces`, `metrics` и `Go runtime metrics` выключены по умолчанию и включаются отдельными флагами. 
 
-`slogger` добавляет `trace_id` и `span_id` в JSON logs, если лог пишется через `slog.InfoContext`, `slog.ErrorContext` и в context есть активный span.
+Использование пакета добавляет в сервис следующие опции:
+
+```
+OpenTelemetry Options:
+      --otel.exporter_otlp_endpoint=    OTLP gRPC endpoint URL (default: http://localhost:4317) [$OTEL_EXPORTER_OTLP_ENDPOINT]
+      --otel.service_instance_id=       Unique service instance id, e.g. pod name, pod UID, hostname, or container id [$OTEL_SERVICE_INSTANCE_ID]
+      --otel.metric_interval=           OTLP metrics export interval (default: 10s) [$OTEL_METRIC_INTERVAL]
+      --otel.shutdown_timeout=          OpenTelemetry shutdown timeout (default: 5s) [$OTEL_SHUTDOWN_TIMEOUT]
+      --otel.enable_traces              Enable traces export [$OTEL_ENABLE_TRACES]
+      --otel.enable_metrics             Enable metrics export [$OTEL_ENABLE_METRICS]
+      --otel.enable_go_runtime_metrics  Enable Go runtime metrics collection [$OTEL_ENABLE_GO_RUNTIME_METRICS]
+```
