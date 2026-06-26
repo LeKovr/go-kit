@@ -14,7 +14,9 @@ TARGETOS ?= linux
 TARGETARCH ?= amd64
 LDFLAGS ?= -s -w -extldflags '-static'
 
-.PHONY: config build up down full-down logs clean
+-include $(CFG_TMPL)
+
+.PHONY: config build config-template run up down full-down logs clean
 
 ## build example binary
 build: $(PRG_DEST) $(CFG_TMPL)
@@ -25,8 +27,20 @@ $(PRG_DEST): $(SOURCES) go.mod go.sum
 	  "$(LDFLAGS) -X main.version=$(APP_VERSION)" \
 	  .
 
+## regenerate config defaults template
 $(CFG_TMPL): $(PRG_DEST)
 	@./$(PRG_DEST) --config_gen=mk > $@ 2>/dev/null
+
+## run example app with traces, metrics, runtime metrics and JSON logs
+run:
+	@$(GO) run . \
+	  --mode=$(MODE) \
+	  --otel.enable_traces \
+	  --otel.enable_metrics \
+	  --otel.enable_go_runtime_metrics \
+	  --log.format=json \
+	  --log.debug \
+	  --http.access_log=-
 
 ## generate local OpenObserve credentials
 config: $(CFG_TMPL)

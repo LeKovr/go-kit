@@ -9,6 +9,7 @@ import (
 	"github.com/LeKovr/go-kit/config"
 	"github.com/LeKovr/go-kit/observability"
 	"github.com/LeKovr/go-kit/server"
+	"github.com/LeKovr/go-kit/slogger"
 )
 
 // Config holds all config vars.
@@ -17,6 +18,7 @@ type Config struct {
 
 	Server        server.Config        `group:"HTTP Options" namespace:"http" env-namespace:"HTTP"`
 	Client        ClientConfig         `group:"Client Options" namespace:"client" env-namespace:"CLIENT"`
+	Logger        slogger.Config       `group:"Logging Options" namespace:"log" env-namespace:"LOG"`
 	Observability observability.Config `group:"OpenTelemetry Options" namespace:"otel" env-namespace:"OTEL"`
 
 	config.EnableShowVersion
@@ -39,6 +41,10 @@ func main() {
 	}()
 
 	if err != nil {
+		return
+	}
+
+	if err = slogger.Setup(cfg.Logger, nil); err != nil {
 		return
 	}
 
