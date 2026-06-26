@@ -130,6 +130,14 @@ h.requests.Add(ctx, 1, metric.WithAttributes(
 | `system.processes.count`      | Количество процессов по состояниям.                           |
 | `system.processes.created`    | Количество созданных процессов.                               |
 
+## Logs
+
+Пример показывает доставку структурных JSON-логов приложения в OpenObserve через Collector:
+
+```text
+application -> error.log -> Collector filelog receiver -> OpenObserve
+```
+
 ## Главное в коде
 
 `observability.New` создает providers, а middleware подключает HTTP instrumentation:

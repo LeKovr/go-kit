@@ -1,4 +1,10 @@
 receivers:
+  filelog/example:
+    include:
+      - /var/log/observability-example/error.log
+    start_at: end
+    operators:
+      - type: json_parser
   hostmetrics:
     collection_interval: 10s
     root_path: /hostfs
@@ -34,6 +40,10 @@ exporters:
 
 service:
   pipelines:
+    logs:
+      receivers: [filelog/example]
+      processors: [resource, batch]
+      exporters: [debug, otlphttp/openobserve]
     traces:
       receivers: [otlp]
       processors: [resource, batch]

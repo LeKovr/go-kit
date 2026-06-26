@@ -6,6 +6,7 @@ PRG ?= example
 PRG_DEST ?= $(PRG)
 CFG ?= .env
 CFG_TMPL ?= Makefile.env
+LOG_DEST ?= error.log
 ZO_ROOT_USER_EMAIL ?= root@example.com
 
 SOURCES = $(shell find . -maxdepth 1 -name '*.go')
@@ -16,7 +17,7 @@ LDFLAGS ?= -s -w -extldflags '-static'
 
 -include $(CFG_TMPL)
 
-.PHONY: config build config-template run up down full-down logs clean
+.PHONY: config build config-template run prepare-log-file up down full-down logs clean
 
 ## build example binary
 build: $(PRG_DEST) $(CFG_TMPL)
@@ -32,7 +33,7 @@ $(CFG_TMPL): $(PRG_DEST)
 	@./$(PRG_DEST) --config_gen=mk > $@ 2>/dev/null
 
 ## run example app with traces, metrics, runtime metrics and JSON logs
-run:
+run: prepare-log-file
 	@$(GO) run . \
 	  --mode=$(MODE) \
 	  --otel.enable_traces \
@@ -40,10 +41,19 @@ run:
 	  --otel.enable_go_runtime_metrics \
 	  --log.format=json \
 	  --log.debug \
+	  --log.dest=$(LOG_DEST) \
 	  --http.access_log=-
 
+## create log file for collector filelog receiver
+prepare-log-file:
+	@if [ -n "$(LOG_DEST)" ]; then \
+	  mkdir -p "$$(dirname "$(LOG_DEST)")"; \
+	  touch "$(LOG_DEST)"; \
+	  test -f "$(LOG_DEST)" || { echo "Log file was not created: $(LOG_DEST)" >&2; exit 1; }; \
+	fi
+
 ## generate local OpenObserve credentials
-config: $(CFG_TMPL)
+config: $(CFG_TMPL) prepare-log-file
 	@password=Aa1!$$(tr -dc A-Za-z0-9 < /dev/urandom 2>/dev/null | head -c28); \
 	auth_digest=$$(printf "%s:%s" "$(ZO_ROOT_USER_EMAIL)" "$$password" | base64 | tr -d '\n'); \
 	sed -E 's/[[:space:]]*\?=[[:space:]]*/=/' < $(CFG_TMPL) > $(CFG); \
@@ -59,7 +69,7 @@ config: $(CFG_TMPL)
 	echo "OpenObserve password: $$password"
 
 ## start local telemetry stack
-up:
+up: prepare-log-file
 	@if [ -f $(CFG) ]; then \
 	  sed -n \
 	    -e 's/^ZO_ROOT_USER_EMAIL=/OpenObserve login: /p' \
@@ -68,7 +78,7 @@ up:
 	else \
 	  make config; \
 	fi
-	docker compose up -d
+	LOG_DEST=$(LOG_DEST) docker compose up -d
 
 ## stop local telemetry stack
 down:
