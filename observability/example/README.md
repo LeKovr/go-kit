@@ -10,7 +10,7 @@
 
 ```sh
 make up
-go run . --mode server --otel.enable_traces --otel.enable_metrics
+make run
 ```
 
 Обычный запрос:
@@ -22,7 +22,7 @@ curl -v http://localhost:8080/demo
 Запрос с trace context:
 
 ```sh
-go run . --mode client --otel.enable_traces
+make run MODE=client
 ```
 
 OpenObserve UI:
@@ -98,8 +98,8 @@ h.requests.Add(ctx, 1, metric.WithAttributes(
 
 Метрики Go runtime включаются отдельным флагом:
 
-```sh
-go run . --otel.enable_metrics --otel.enable_go_runtime_metrics
+```
+--otel.enable_go_runtime_metrics
 ```
 
 | Metric                  | Описание                                                |

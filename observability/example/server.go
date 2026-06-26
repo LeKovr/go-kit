@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -59,8 +60,12 @@ func (h DemoHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	slog.DebugContext(r.Context(), "demo request started", "method", r.Method, "path", r.URL.Path)
+
 	h.RecordRequest(r.Context())
 	h.Calculate(r.Context())
+
+	slog.DebugContext(r.Context(), "demo request completed", "method", r.Method, "path", r.URL.Path)
 
 	_, _ = w.Write([]byte("ok\n"))
 }
@@ -72,9 +77,14 @@ func (h DemoHandler) RecordRequest(ctx context.Context) {
 }
 
 func (h DemoHandler) Calculate(ctx context.Context) {
-	_, span := h.tracer.Start(ctx, "demo.calculate")
+	ctx, span := h.tracer.Start(ctx, "demo.calculate")
 	defer span.End()
 
 	span.SetAttributes(attribute.String("demo.step", "calculate"))
+
+	slog.InfoContext(ctx, "demo calculation started")
+
 	time.Sleep(250 * time.Millisecond)
+
+	slog.InfoContext(ctx, "demo calculation completed")
 }

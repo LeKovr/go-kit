@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"time"
@@ -35,11 +36,15 @@ func runClient(ctx context.Context, cfg ClientConfig, obs *observability.Service
 		return err
 	}
 
+	slog.DebugContext(ctx, "demo client request started", "url", cfg.URL)
+
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
+
+	slog.DebugContext(ctx, "demo client response received", "status", resp.Status)
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
