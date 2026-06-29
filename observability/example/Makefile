@@ -11,26 +11,25 @@ ZO_ROOT_USER_EMAIL ?= root@example.com
 
 SOURCES = $(shell find . -maxdepth 1 -name '*.go')
 APP_VERSION ?= $(shell git describe --tags --always)
-TARGETOS ?= linux
-TARGETARCH ?= amd64
-LDFLAGS ?= -s -w -extldflags '-static'
+TARGETOS ?= $(shell $(GO) env GOOS)
+TARGETARCH ?= $(shell $(GO) env GOARCH)
 
 -include $(CFG_TMPL)
 
-.PHONY: config build config-template run prepare-log-file up down full-down logs clean
+.PHONY: config build run prepare-log-file up down full-down logs clean
 
 ## build example binary
-build: $(PRG_DEST) $(CFG_TMPL)
+build: $(PRG_DEST)
 
 $(PRG_DEST): $(SOURCES) go.mod go.sum
 	@GOOS=$(TARGETOS) GOARCH=$(TARGETARCH) CGO_ENABLED=$(CGO_ENABLED) GOWORK=$(GOWORK) \
 	  $(GO) build -v -o $@ -ldflags \
-	  "$(LDFLAGS) -X main.version=$(APP_VERSION)" \
+	  "-X main.version=$(APP_VERSION)" \
 	  .
 
 ## regenerate config defaults template
-$(CFG_TMPL): $(PRG_DEST)
-	@./$(PRG_DEST) --config_gen=mk > $@ 2>/dev/null
+$(CFG_TMPL): $(SOURCES) go.mod go.sum Makefile
+	@GOWORK=$(GOWORK) $(GO) run . --config_gen=mk > $@ 2>/dev/null
 
 ## run example app with traces, metrics, runtime metrics and JSON logs
 run: prepare-log-file
@@ -54,7 +53,7 @@ prepare-log-file:
 
 ## generate local OpenObserve credentials
 config: $(CFG_TMPL) prepare-log-file
-	@password=Aa1!$$(tr -dc A-Za-z0-9 < /dev/urandom 2>/dev/null | head -c28); \
+	@password=Aa1!$$(LC_ALL=C tr -dc A-Za-z0-9 < /dev/urandom 2>/dev/null | head -c28); \
 	auth_digest=$$(printf "%s:%s" "$(ZO_ROOT_USER_EMAIL)" "$$password" | base64 | tr -d '\n'); \
 	sed -E 's/[[:space:]]*\?=[[:space:]]*/=/' < $(CFG_TMPL) > $(CFG); \
 	{ \
