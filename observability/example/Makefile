@@ -20,7 +20,7 @@ LDFLAGS ?= -s -w -extldflags '-static'
 .PHONY: config build run prepare-log-file up down full-down logs clean
 
 ## build example binary
-build: $(PRG_DEST)
+build: $(PRG_DEST) $(CFG_TMPL)
 
 $(PRG_DEST): $(SOURCES) go.mod go.sum
 	@GOOS=$(TARGETOS) GOARCH=$(TARGETARCH) CGO_ENABLED=$(CGO_ENABLED) GOWORK=$(GOWORK) \
