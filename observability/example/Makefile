@@ -13,6 +13,7 @@ SOURCES = $(shell find . -maxdepth 1 -name '*.go')
 APP_VERSION ?= $(shell git describe --tags --always)
 TARGETOS ?= $(shell $(GO) env GOOS)
 TARGETARCH ?= $(shell $(GO) env GOARCH)
+LDFLAGS ?= -s -w -extldflags '-static'
 
 -include $(CFG_TMPL)
 
@@ -24,7 +25,7 @@ build: $(PRG_DEST)
 $(PRG_DEST): $(SOURCES) go.mod go.sum
 	@GOOS=$(TARGETOS) GOARCH=$(TARGETARCH) CGO_ENABLED=$(CGO_ENABLED) GOWORK=$(GOWORK) \
 	  $(GO) build -v -o $@ -ldflags \
-	  "-X main.version=$(APP_VERSION)" \
+	  "$(LDFLAGS) -X main.version=$(APP_VERSION)" \
 	  .
 
 ## regenerate config defaults template
@@ -53,6 +54,7 @@ prepare-log-file:
 
 ## generate local OpenObserve credentials
 config: $(CFG_TMPL) prepare-log-file
+	@# LC_ALL=C makes tr process /dev/urandom bytes safely on macOS UTF-8 locales.
 	@password=Aa1!$$(LC_ALL=C tr -dc A-Za-z0-9 < /dev/urandom 2>/dev/null | head -c28); \
 	auth_digest=$$(printf "%s:%s" "$(ZO_ROOT_USER_EMAIL)" "$$password" | base64 | tr -d '\n'); \
 	sed -E 's/[[:space:]]*\?=[[:space:]]*/=/' < $(CFG_TMPL) > $(CFG); \
