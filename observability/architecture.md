@@ -2,57 +2,54 @@
 
 Схема показывает путь observability-сигналов от Go-сервиса до backend-ов хранения и анализа.
 
-Пакет `observability` отвечает за Go-side часть: настройку OpenTelemetry SDK, `otelhttp` instrumentation, Go runtime metrics, custom `Tracer`/`Meter` и OTLP export traces/metrics.
+Пакет `observability` отвечает за Go-side часть: настройку OpenTelemetry SDK, HTTP мониторинг через `otelhttp`, сбор метрик `Go runtime`, `custom Tracer/Meter` и экспорт `traces/metrics` по OTLP.
 
-Пайплайны Collector, host metrics, сбор логов, хранение данных и маршрутизация в observability backend-ы относятся к инфраструктурному слою и настраиваются вне Go-пакета.
+`slogger` пишет JSON-логи с `trace_id`/`span_id` в `stderr` или файл, а Collector читает их через `filelog` или `journald`
+
+Сбор `host metrics` и логов, обработка сигналов и маршрутизация в один или несколько backend-ов относятся к инфраструктурному слою и настраиваются в конфигурации Collector
 
 ```mermaid
 flowchart TB
-    subgraph app_layer["Go service"]
-        direction TB
+    subgraph app_layer["Go service process"]
         app["Application code"]
         runtime["Go runtime"]
-        otel["OpenTelemetry SDK<br/>traces and metrics"]
-        logger["Logger slog"]
+        otel["OpenTelemetry SDK"]
+        logger["slogger"]
 
-        app --> |"otelhttp traces and metrics<br> + custom business metrics"| otel
-        runtime -->|"runtime metrics:<br/>memory / GC / goroutines / scheduler"| otel
+        app --> |"otelhttp + custom spans / metrics"| otel
+        runtime -->|"Go runtime metrics<br/>memory / GC / goroutines / scheduler"| otel
         app --> logger
     end
 
-    subgraph runtime_layer["Runtime / Host environment"]
-        direction TB
-        otlp["OTLP endpoint<br/>gRPC / HTTP"]
-        stdout["stdout / stderr"]
-        log_source["Log source<br/>container logs / journald / filelog"]
-        host["Host / container runtime"]
-
-        stdout --> log_source
-    end
+    host["Host / container runtime"]
 
     subgraph collector_layer["OpenTelemetry Collector"]
-        direction TB
-        receivers["Receivers<br/>otlp / filelog / journald / hostmetrics"]
-        processors["Processors<br/>resource detection / attributes / memory_limiter / batch / filter / sampling"]
+        otlp_receiver["OTLP receiver<br/>gRPC / HTTP"]
+        log_receiver["Log receivers<br/>filelog / journald"]
+        hostmetrics_receiver["hostmetrics receiver"]
+        processors["Processors<br/>resource enrichment / <br/> filtering / batching / sampling"]
         exporters["Exporters"]
 
-        receivers --> processors
+        otlp_receiver --> processors
+        log_receiver --> processors
+        hostmetrics_receiver --> processors
         processors --> exporters
     end
 
-    subgraph backend_layer["Observability backend"]
-        direction TB
-        openobserve["OpenObserve<br/>logs + metrics + traces"]
-        other["Alternative backends<br/>Loki / Tempo / VictoriaMetrics / Prometheus / Datadog / ..."]
+    subgraph backend_layer["Observability backends"]
+        openobserve["OpenObserve"]
+        logs_backend["Loki / Elasticsearch"]
+        traces_backend["Tempo / Jaeger"]
+        metrics_backend["VictoriaMetrics / Prometheus"]
     end
 
-    otel -->|"OTLP traces and metrics"| otlp
-    logger -->|"structured JSON logs with<br/>trace_id / span_id"| stdout
-    otlp --> receivers
-    log_source --> receivers
-    host -->|"host metrics<br/>CPU / RAM / disk / network"| receivers
-    exporters --> openobserve
-    exporters -.-> other
+    otel -->|"traces + metrics"| otlp_receiver
+    logger -->|"JSON logs"| log_receiver
+    host -->|"host metrics<br/>CPU / RAM / disk / network"| hostmetrics_receiver
+    exporters -->|"logs + metrics + traces"| openobserve
+    exporters -.->|"logs"| logs_backend
+    exporters -.->|"traces"| traces_backend
+    exporters -.->|"metrics"| metrics_backend
 
     classDef app fill:#eaf4ff,stroke:#3b82f6,color:#0f172a
     classDef boundary fill:#f8fafc,stroke:#64748b,color:#0f172a
@@ -60,7 +57,7 @@ flowchart TB
     classDef backend fill:#ecfdf5,stroke:#10b981,color:#0f172a
 
     class app,otel,runtime,logger app
-    class otlp,stdout,log_source,host boundary
-    class receivers,processors,exporters collector
-    class openobserve,other backend
+    class host boundary
+    class otlp_receiver,log_receiver,hostmetrics_receiver,processors,exporters collector
+    class openobserve,logs_backend,traces_backend,metrics_backend backend
 ```
