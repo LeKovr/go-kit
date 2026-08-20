@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -191,9 +192,9 @@ func TestRunWorkers(t *testing.T) {
 	srv := New(Config{Listen: ":0"})
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
-	called := 0
+	var called atomic.Int32
 	worker := func(ctx context.Context) error {
-		called++
+		called.Add(int32(1))
 		return nil
 	}
 	srv.WithNWorkers(2, worker)
@@ -201,8 +202,9 @@ func TestRunWorkers(t *testing.T) {
 	if err != nil && !strings.Contains(err.Error(), "context canceled") {
 		t.Fatalf("RunWorkers returned error: %v", err)
 	}
-	if called != 3 {
-		t.Fatalf("worker not called, want 3 got %d", called)
+	called32 := called.Load()
+	if called32 != int32(3) {
+		t.Fatalf("worker not called, want 3 got %d", called32)
 	}
 }
 

@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/felixge/httpsnoop"
-	"github.com/go-http-utils/etag"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -45,10 +44,11 @@ type Config struct {
 	IdleTimeout       time.Duration `long:"ito" default:"10s" description:"HTTP idle timeout"`
 	GracePeriod       time.Duration `long:"grace" default:"10s" description:"Stop grace period"`
 
-	IPHeader   string `long:"ip_header" env:"IP_HEADER" default:"X-Real-IP" description:"HTTP Request Header for remote IP"`
-	UserHeader string `long:"user_header" env:"USER_HEADER" default:"X-Username" description:"HTTP Request Header for username"`
-	AccessLog  string `long:"access_log" env:"ACCESS_LOG" description:"HTTP access log filename (default: STDOUT, '-' means disable)"`
-	UseETag    bool   `long:"etag" env:"ETAG" description:"Add ETAG in HTTP response"`
+	IPHeader         string `long:"ip_header" env:"IP_HEADER" default:"X-Real-IP" description:"HTTP Request Header for remote IP"`
+	UserHeader       string `long:"user_header" env:"USER_HEADER" default:"X-Username" description:"HTTP Request Header for username"`
+	AccessLog        string `long:"access_log" env:"ACCESS_LOG" description:"HTTP access log filename (default: STDOUT, '-' means disable)"`
+	UseETag          bool   `long:"etag" env:"ETAG" description:"Add ETAG in HTTP response"`
+	ETagMaxBodyBytes int    `long:"etag_max_body_bytes" env:"ETAG_MAX_BODY_BYTES" default:"1048576" description:"Maximum response body size buffered for ETag; non-positive means 1 MiB"`
 
 	TLS     TLSConfig             `group:"HTTPS Options"            namespace:"tls"  env-namespace:"TLS"`
 	Version VersionResponseConfig `group:"Version response Options" namespace:"vr"`
@@ -120,7 +120,7 @@ func (srv Service) ServeMuxWithHandlers() http.Handler {
 		mux = handler(mux)
 	}
 	if srv.config.UseETag {
-		mux = etag.Handler(mux, false)
+		mux = withETag(mux, srv.config.ETagMaxBodyBytes)
 	}
 	return mux
 }
@@ -172,19 +172,25 @@ func (srv *Service) WithHTTPWorkers() *Service {
 	if srv.config.TLS.CertFile != "" {
 		workers[0] = func(_ context.Context) error {
 			slog.Debug("Start HTTPS service")
-			return server.ServeTLS(srv.listener, srv.config.TLS.CertFile, srv.config.TLS.KeyFile)
+			return normalizeServeError(server.ServeTLS(srv.listener, srv.config.TLS.CertFile, srv.config.TLS.KeyFile))
 		}
 	} else {
 		workers[0] = func(_ context.Context) error {
 			slog.Debug("Start HTTP service")
-			return server.Serve(srv.listener)
+			return normalizeServeError(server.Serve(srv.listener))
 		}
 	}
 	workers[1] = func(ctx context.Context) error {
 		<-ctx.Done()
-		timedCtx, cancel := context.WithTimeout(ctx, cfg.GracePeriod)
+		timedCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cfg.GracePeriod)
 		defer cancel()
-		return server.Shutdown(timedCtx)
+		if err := server.Shutdown(timedCtx); err != nil {
+			return errors.Join(
+				fmt.Errorf("HTTP shutdown: %w", err),
+				server.Close(),
+			)
+		}
+		return nil
 	}
 	srv.server = server
 	srv.WithWorkers(workers...)
@@ -194,14 +200,6 @@ func (srv *Service) WithHTTPWorkers() *Service {
 // Run runs HTTP(s) service and workers. HTTP Workers will be registered if none.
 func (srv *Service) Run(ctx context.Context, workers ...Worker) error {
 	cfg := srv.config
-	if srv.listener == nil {
-		slog.Debug("Start Listener", "addr", cfg.Listen)
-		listener, err := net.Listen("tcp", cfg.Listen)
-		if err != nil {
-			return err
-		}
-		srv.listener = listener
-	}
 	if srv.server == nil {
 		srv.WithHTTPWorkers()
 	}
@@ -219,6 +217,14 @@ func (srv *Service) Run(ctx context.Context, workers ...Worker) error {
 			srv.accessLogWriter = writer
 		}
 		server.Handler = srv.accessLogHandler(server.Handler)
+	}
+	if srv.listener == nil {
+		slog.Debug("Start Listener", "addr", cfg.Listen)
+		listener, err := net.Listen("tcp", cfg.Listen)
+		if err != nil {
+			return err
+		}
+		srv.listener = listener
 	}
 
 	return srv.WithWorkers(workers...).run(ctx)
@@ -244,32 +250,51 @@ func (srv *Service) run(ctxParent context.Context) error {
 			return w(gCtx)
 		})
 	}
-	if er := g.Wait(); er != nil && !errors.Is(er, http.ErrServerClosed) && !errors.Is(er, net.ErrClosed) {
-		return er
+	runErr := g.Wait()
+	if errors.Is(runErr, context.Canceled) && ctx.Err() != nil {
+		runErr = nil
+	}
+	closeErr := srv.closeAccessLog()
+	if err := errors.Join(runErr, closeErr); err != nil {
+		return err
 	}
 	slog.Info("Exit")
+	return nil
+}
+
+func normalizeServeError(err error) error {
+	if errors.Is(err, http.ErrServerClosed) || errors.Is(err, net.ErrClosed) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("HTTP serve: %w", err)
+	}
 	return nil
 }
 
 func (srv *Service) shutdownWorker(ctx context.Context) error {
 	<-ctx.Done()
 	slog.Debug("Shutdown")
-	timedCtx, cancel := context.WithTimeout(context.Background(), srv.config.GracePeriod)
+	timedCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), srv.config.GracePeriod)
 	defer cancel()
-	var err error
-
-	if srv.accessLogWriter != nil {
-		if f, ok := srv.accessLogWriter.(*os.File); ok {
-			f.Close()
-			slog.Info("Log closed")
-		}
-	}
-
 	if srv.onShutdown != nil {
 		w := *srv.onShutdown
-		err = w(timedCtx)
+		return w(timedCtx)
 	}
-	return err
+	return nil
+}
+
+func (srv *Service) closeAccessLog() error {
+	f, ok := srv.accessLogWriter.(*os.File)
+	if !ok {
+		return nil
+	}
+	srv.accessLogWriter = nil
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close access log: %w", err)
+	}
+	slog.Info("Log closed")
+	return nil
 }
 
 // WithAccessLog calculates estimate and prints HTTP request log.

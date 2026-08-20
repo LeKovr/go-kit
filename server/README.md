@@ -33,6 +33,7 @@ Server Options:
       --srv.user_header=         HTTP Request Header for username (default: X-Username) [$SRV_USER_HEADER]
       --srv.access_log=          HTTP access log filename (default: STDOUT, '-' means disable) [$SRV_ACCESS_LOG]
       --srv.etag                 Add ETAG in HTTP response [$SRV_ETAG]
+      --srv.etag_max_body_bytes= Maximum response body size buffered for ETag; non-positive means 1 MiB (default: 1048576) [$SRV_ETAG_MAX_BODY_BYTES]
 
 HTTPS Options:
       --srv.tls.cert=            CertFile for serving HTTPS instead HTTP [$SRV_TLS_CERT]
