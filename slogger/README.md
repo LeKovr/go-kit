@@ -23,6 +23,16 @@
 * для тестов вывод пишется в буфер и его можно анализировать
 * ?? возможность влючить отладку заданного пакета
 
+## Scope логов
+
+Чтобы указать пакет или модуль, создавший запись, добавьте scope в контекст.
+В логе он появится в поле [`otel.scope.name`](https://opentelemetry.io/docs/specs/otel/common/mapping-to-non-otlp/#instrumentationscope):
+
+```go
+ctx = slogger.ContextWithScope(ctx, "module")
+
+slog.DebugContext(ctx, "request sent")
+```
 
 ## TODO
 

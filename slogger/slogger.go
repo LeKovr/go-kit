@@ -85,6 +85,7 @@ func Setup(cfg Config, out io.Writer) error {
 	}
 	// Works when OTEL_EXPORTER_OTLP_ENDPOINT is set
 	handler = slogotel.OtelHandler{Next: handler}
+	handler = scopeHandler{next: handler}
 	slog.SetDefault(slog.New(handler))
 	return nil
 }
