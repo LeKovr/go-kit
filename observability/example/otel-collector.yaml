@@ -5,6 +5,12 @@ receivers:
     start_at: end
     operators:
       - type: json_parser
+      - type: scope_name_parser
+        if: 'attributes["otel.scope.name"] != nil'
+        parse_from: 'attributes["otel.scope.name"]'
+      - type: remove
+        if: 'attributes["otel.scope.name"] != nil'
+        field: 'attributes["otel.scope.name"]'
   hostmetrics:
     collection_interval: 10s
     root_path: /hostfs

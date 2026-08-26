@@ -25,14 +25,12 @@
 
 ## Scope логов
 
-Чтобы указать пакет или модуль, создавший запись, добавьте scope в контекст.
-В логе он появится в поле [`otel.scope.name`](https://opentelemetry.io/docs/specs/otel/common/mapping-to-non-otlp/#instrumentationscope):
+После `slogger.Setup` создайте logger со статическим [OpenTelemetry instrumentation scope](https://opentelemetry.io/docs/specs/otel/common/mapping-to-non-otlp/#instrumentationscope):
 
 ```go
-ctx = slogger.ContextWithScope(ctx, "module")
+logger := slogger.WithScope(slog.Default(), "module")
 
-slog.DebugContext(ctx, "request sent")
-```
+logger.DebugContext(ctx, "request sent")
 
 ## TODO
 

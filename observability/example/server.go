@@ -14,6 +14,7 @@ import (
 )
 
 type DemoHandler struct {
+	logger *slog.Logger
 	tracer trace.Tracer
 
 	requests metric.Int64Counter
@@ -21,11 +22,9 @@ type DemoHandler struct {
 
 func runServer(ctx context.Context, cfg Config, obs *observability.Service) error {
 	const instrumentation = application + "/server"
+	telemetry := newTelemetry(slog.Default(), obs, instrumentation)
 
-	demoHandler, err := NewDemoHandler(
-		obs.Tracer(instrumentation),
-		obs.Meter(instrumentation),
-	)
+	demoHandler, err := NewDemoHandler(telemetry)
 	if err != nil {
 		return err
 	}
@@ -37,8 +36,8 @@ func runServer(ctx context.Context, cfg Config, obs *observability.Service) erro
 	return srv.Run(ctx)
 }
 
-func NewDemoHandler(tracer trace.Tracer, meter metric.Meter) (*DemoHandler, error) {
-	requests, err := meter.Int64Counter(
+func NewDemoHandler(telemetry Telemetry) (*DemoHandler, error) {
+	requests, err := telemetry.Meter.Int64Counter(
 		"demo.custom.requests",
 		metric.WithDescription("Number of custom demo handler calls."),
 		metric.WithUnit("{request}"),
@@ -48,7 +47,8 @@ func NewDemoHandler(tracer trace.Tracer, meter metric.Meter) (*DemoHandler, erro
 	}
 
 	return &DemoHandler{
-		tracer:   tracer,
+		logger:   telemetry.Logger,
+		tracer:   telemetry.Tracer,
 		requests: requests,
 	}, nil
 }
@@ -60,12 +60,12 @@ func (h DemoHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	slog.DebugContext(r.Context(), "demo request started", "method", r.Method, "path", r.URL.Path)
+	h.logger.DebugContext(r.Context(), "demo request started", "method", r.Method, "path", r.URL.Path)
 
 	h.RecordRequest(r.Context())
 	h.Calculate(r.Context())
 
-	slog.DebugContext(r.Context(), "demo request completed", "method", r.Method, "path", r.URL.Path)
+	h.logger.DebugContext(r.Context(), "demo request completed", "method", r.Method, "path", r.URL.Path)
 
 	_, _ = w.Write([]byte("ok\n"))
 }
@@ -82,9 +82,9 @@ func (h DemoHandler) Calculate(ctx context.Context) {
 
 	span.SetAttributes(attribute.String("demo.step", "calculate"))
 
-	slog.InfoContext(ctx, "demo calculation started")
+	h.logger.InfoContext(ctx, "demo calculation started")
 
 	time.Sleep(250 * time.Millisecond)
 
-	slog.InfoContext(ctx, "demo calculation completed")
+	h.logger.InfoContext(ctx, "demo calculation completed")
 }
