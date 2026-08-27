@@ -31,6 +31,7 @@
 logger := slogger.WithScope(slog.Default(), "module")
 
 logger.DebugContext(ctx, "request sent")
+```
 
 ## TODO
 

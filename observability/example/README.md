@@ -4,8 +4,7 @@
 
 * `server` mode показывает HTTP middleware для server spans и HTTP metrics;
 * `handler` добавляет custom span и custom metric;
-* `client` передает W3C trace context через `otelhttp.NewTransport`, а server продолжает trace через HTTP middleware;
-* `server` и `client` задают собственный instrumentation scope и используют его для всей telemetry.
+* `client` передает W3C trace context через `otelhttp.NewTransport`, а server продолжает trace через HTTP middleware.
 
 ## Запуск
 
