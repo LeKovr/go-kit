@@ -23,6 +23,15 @@
 * для тестов вывод пишется в буфер и его можно анализировать
 * ?? возможность влючить отладку заданного пакета
 
+## Scope логов
+
+После `slogger.Setup` создайте logger со статическим [OpenTelemetry instrumentation scope](https://opentelemetry.io/docs/specs/otel/common/mapping-to-non-otlp/#instrumentationscope):
+
+```go
+logger := slogger.WithScope(slog.Default(), "module")
+
+logger.DebugContext(ctx, "request sent")
+```
 
 ## TODO
 

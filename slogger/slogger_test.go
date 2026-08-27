@@ -64,3 +64,44 @@ func TestSwitch(t *testing.T) {
 	ass.Equal(t, want, b.String())
 
 }
+
+func TestWithScope(t *testing.T) {
+	out := setupScope(t)
+	base := slog.Default()
+	module := slogger.WithScope(base, "module")
+
+	base.Info("without scope")
+	module.Info("module scope")
+	slogger.WithScope(base, "").Info("empty name")
+	module.With("worker", "sync").Info("with attributes")
+	module.WithGroup("request").Info("with group", "id", 42)
+	slogger.WithScope(nil, "default").Info("nil base")
+
+	want := `{"level":"INFO","msg":"without scope"}
+{"level":"INFO","msg":"module scope","otel.scope.name":"module"}
+{"level":"INFO","msg":"empty name"}
+{"level":"INFO","msg":"with attributes","otel.scope.name":"module","worker":"sync"}
+{"level":"INFO","msg":"with group","otel.scope.name":"module","request":{"id":42}}
+{"level":"INFO","msg":"nil base","otel.scope.name":"default"}
+`
+	ass.Equal(t, want, out.String())
+}
+
+func setupScope(t *testing.T) *strings.Builder {
+	t.Helper()
+	previousLogger := slog.Default()
+	previousLevel := slogger.LogLevel.Level()
+	t.Cleanup(func() {
+		slog.SetDefault(previousLogger)
+		slogger.LogLevelSet(previousLevel)
+	})
+
+	out := new(strings.Builder)
+	err := slogger.Setup(slogger.Config{
+		Format:     "json",
+		TimeFormat: slogger.TimeDisableKey,
+	}, out)
+	ass.NoError(t, err)
+
+	return out
+}

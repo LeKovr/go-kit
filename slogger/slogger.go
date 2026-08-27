@@ -12,6 +12,7 @@ import (
 	"github.com/mattn/go-isatty"
 
 	slogotel "github.com/remychantenay/slog-otel"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 )
 
 // Config holds package configuration.
@@ -87,6 +88,18 @@ func Setup(cfg Config, out io.Writer) error {
 	handler = slogotel.OtelHandler{Next: handler}
 	slog.SetDefault(slog.New(handler))
 	return nil
+}
+
+// WithScope returns a logger with a static OpenTelemetry instrumentation scope name.
+func WithScope(base *slog.Logger, name string) *slog.Logger {
+	if base == nil {
+		base = slog.Default()
+	}
+	if name == "" {
+		return base
+	}
+
+	return base.With(slog.String(string(semconv.OTelScopeNameKey), name))
 }
 
 // ErrAttr returns slog.Attr for err value.

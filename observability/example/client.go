@@ -19,11 +19,14 @@ type ClientConfig struct {
 }
 
 func runClient(ctx context.Context, cfg ClientConfig, obs *observability.Service) error {
+	const instrumentation = application + "/client"
+	telemetry := newTelemetry(slog.Default(), obs, instrumentation)
+
 	// otelhttp.NewTransport uses process-wide providers and propagators by default.
 	restore := obs.InstallGlobal()
 	defer restore()
 
-	ctx, span := obs.Tracer(application+"/client").Start(ctx, "demo.client.request")
+	ctx, span := telemetry.Tracer.Start(ctx, "demo.client.request")
 	defer span.End()
 
 	client := &http.Client{
@@ -36,7 +39,7 @@ func runClient(ctx context.Context, cfg ClientConfig, obs *observability.Service
 		return err
 	}
 
-	slog.DebugContext(ctx, "demo client request started", "url", cfg.URL)
+	telemetry.Logger.DebugContext(ctx, "demo client request started", "url", cfg.URL)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -44,7 +47,7 @@ func runClient(ctx context.Context, cfg ClientConfig, obs *observability.Service
 	}
 	defer resp.Body.Close()
 
-	slog.DebugContext(ctx, "demo client response received", "status", resp.Status)
+	telemetry.Logger.DebugContext(ctx, "demo client response received", "status", resp.Status)
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
