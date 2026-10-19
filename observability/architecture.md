@@ -10,18 +10,22 @@
 
 ```mermaid
 flowchart TB
-    subgraph app_layer["Go service process"]
-        app["Application code"]
-        runtime["Go runtime"]
-        otel["OpenTelemetry SDK"]
-        logger["slogger"]
+    subgraph host_layer["Host / container"]
+        subgraph app_layer["Go service process"]
+            app["Application code"]
+            runtime["Go runtime"]
 
-        app --> |"otelhttp + custom spans / metrics"| otel
-        runtime -->|"Go runtime metrics<br/>memory / GC / goroutines / scheduler"| otel
-        app --> logger
+            subgraph observability_layer["go-kit/observability"]
+                otel["OpenTelemetry SDK setup"]
+            end
+
+            logger["go-kit/slogger"]
+
+            app -->|"HTTPMiddleware · Tracer / Meter"| otel
+            runtime -->|"Go runtime metrics"| otel
+            app -->|"trace_id / span_id"| logger
+        end
     end
-
-    host["Host / container runtime"]
 
     subgraph collector_layer["OpenTelemetry Collector"]
         otlp_receiver["OTLP receiver<br/>gRPC / HTTP"]
@@ -43,21 +47,22 @@ flowchart TB
         metrics_backend["VictoriaMetrics / Prometheus"]
     end
 
-    otel -->|"traces + metrics"| otlp_receiver
+    otel -->|"OTLP traces + metrics"| otlp_receiver
     logger -->|"JSON logs"| log_receiver
-    host -->|"host metrics<br/>CPU / RAM / disk / network"| hostmetrics_receiver
+    host_layer -->|"host metrics<br/>CPU / RAM / disk / network"| hostmetrics_receiver
     exporters -->|"logs + metrics + traces"| openobserve
     exporters -.->|"logs"| logs_backend
     exporters -.->|"traces"| traces_backend
     exporters -.->|"metrics"| metrics_backend
 
     classDef app fill:#eaf4ff,stroke:#3b82f6,color:#0f172a
-    classDef boundary fill:#f8fafc,stroke:#64748b,color:#0f172a
     classDef collector fill:#fff7ed,stroke:#f97316,color:#0f172a
     classDef backend fill:#ecfdf5,stroke:#10b981,color:#0f172a
 
-    class app,otel,runtime,logger app
-    class host boundary
+    class app,runtime,logger,otel app
     class otlp_receiver,log_receiver,hostmetrics_receiver,processors,exporters collector
     class openobserve,logs_backend,traces_backend,metrics_backend backend
+
+    style host_layer fill:none,stroke:#64748b,stroke-width:2px
+    style observability_layer fill:none,stroke:#3b82f6,stroke-width:1.5px
 ```
