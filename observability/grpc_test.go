@@ -9,18 +9,14 @@ import (
 	"time"
 
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/baggage"
 	otelcodes "go.opentelemetry.io/otel/codes"
-	noopmetric "go.opentelemetry.io/otel/metric/noop"
 	"go.opentelemetry.io/otel/propagation"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
-	nooptrace "go.opentelemetry.io/otel/trace/noop"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -31,8 +27,8 @@ import (
 )
 
 func TestGRPCHandlersPropagateContextAndRecordTelemetry(t *testing.T) {
-	clientTelemetry := newGRPCTestTelemetry(t, true, true)
-	serverTelemetry := newGRPCTestTelemetry(t, true, true)
+	clientTelemetry := newTestTelemetry(t, true, true)
+	serverTelemetry := newTestTelemetry(t, true, true)
 	impl := &grpcTestHealthServer{}
 	client, wait := newGRPCTestClient(t, clientTelemetry.service.GRPCClientHandler(), serverTelemetry.service.GRPCServerHandler(), impl)
 	ctx, parent := clientTelemetry.service.Tracer("test-parent").Start(grpcTestContext(t), "parent")
@@ -71,8 +67,8 @@ func TestGRPCHandlersPropagateContextAndRecordTelemetry(t *testing.T) {
 }
 
 func TestGRPCHandlersRecordInternalError(t *testing.T) {
-	clientTelemetry := newGRPCTestTelemetry(t, true, true)
-	serverTelemetry := newGRPCTestTelemetry(t, true, true)
+	clientTelemetry := newTestTelemetry(t, true, true)
+	serverTelemetry := newTestTelemetry(t, true, true)
 	client, wait := newGRPCTestClient(t, clientTelemetry.service.GRPCClientHandler(), serverTelemetry.service.GRPCServerHandler(), &grpcTestHealthServer{checkError: status.Error(codes.Internal, "test failure")})
 	ctx := grpcTestContext(t)
 	if _, err := client.Check(ctx, &healthpb.HealthCheckRequest{}); status.Code(err) != codes.Internal {
@@ -80,7 +76,7 @@ func TestGRPCHandlersRecordInternalError(t *testing.T) {
 	}
 	wait(ctx)
 	for _, tc := range []struct {
-		telemetry grpcTestTelemetry
+		telemetry testTelemetry
 		kind      trace.SpanKind
 		side      string
 	}{
@@ -104,8 +100,8 @@ func TestGRPCHandlersFinishStreams(t *testing.T) {
 			name = "canceled"
 		}
 		t.Run(name, func(t *testing.T) {
-			clientTelemetry := newGRPCTestTelemetry(t, true, true)
-			serverTelemetry := newGRPCTestTelemetry(t, true, true)
+			clientTelemetry := newTestTelemetry(t, true, true)
+			serverTelemetry := newTestTelemetry(t, true, true)
 			client, wait := newGRPCTestClient(t, clientTelemetry.service.GRPCClientHandler(), serverTelemetry.service.GRPCServerHandler(), &grpcTestHealthServer{waitForCancel: cancelStream})
 			ctx := grpcTestContext(t)
 			streamCtx, cancel := context.WithCancel(ctx)
@@ -150,10 +146,10 @@ func TestGRPCHandlersKeepSignalsIndependentOfGlobals(t *testing.T) {
 		{name: "zero value", zeroValue: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			globals := newGRPCTestTelemetry(t, true, true)
-			installGRPCTestGlobals(t, globals.service)
-			clientTelemetry := newGRPCTestTelemetry(t, tc.traces, tc.metrics)
-			serverTelemetry := newGRPCTestTelemetry(t, tc.traces, tc.metrics)
+			globals := newTestTelemetry(t, true, true)
+			installTestGlobals(t, globals.service)
+			clientTelemetry := newTestTelemetry(t, tc.traces, tc.metrics)
+			serverTelemetry := newTestTelemetry(t, tc.traces, tc.metrics)
 			if !tc.traces && !tc.metrics {
 				var svc Service
 				if !tc.zeroValue {
@@ -178,7 +174,7 @@ func TestGRPCHandlersKeepSignalsIndependentOfGlobals(t *testing.T) {
 			if tc.metrics {
 				wantCount = 1
 			}
-			for side, telemetry := range map[string]grpcTestTelemetry{"client": clientTelemetry, "server": serverTelemetry} {
+			for side, telemetry := range map[string]testTelemetry{"client": clientTelemetry, "server": serverTelemetry} {
 				if got := len(telemetry.exporter.GetSpans()); got != wantSpans {
 					t.Fatalf("%s spans = %d, want %d", side, got, wantSpans)
 				}
@@ -192,8 +188,8 @@ func TestGRPCHandlersKeepSignalsIndependentOfGlobals(t *testing.T) {
 func TestGRPCHandlersPassFiltersWithoutBreakingPropagation(t *testing.T) {
 	for _, filteredSide := range []string{"client", "server", "both"} {
 		t.Run(filteredSide, func(t *testing.T) {
-			clientTelemetry := newGRPCTestTelemetry(t, true, true)
-			serverTelemetry := newGRPCTestTelemetry(t, true, true)
+			clientTelemetry := newTestTelemetry(t, true, true)
+			serverTelemetry := newTestTelemetry(t, true, true)
 			filter := otelgrpc.WithFilter(func(*stats.RPCTagInfo) bool { return false })
 			var clientOptions, serverOptions []otelgrpc.Option
 			if filteredSide != "server" {
@@ -215,7 +211,7 @@ func TestGRPCHandlersPassFiltersWithoutBreakingPropagation(t *testing.T) {
 			if got := trace.SpanContextFromContext(impl.receivedContext).TraceID(); got != parent.TraceID() {
 				t.Fatalf("filtered RPC lost trace: got %s, want %s", got, parent.TraceID())
 			}
-			for side, telemetry := range map[string]grpcTestTelemetry{"client": clientTelemetry, "server": serverTelemetry} {
+			for side, telemetry := range map[string]testTelemetry{"client": clientTelemetry, "server": serverTelemetry} {
 				if filteredSide == side || filteredSide == "both" {
 					assertNoGRPCTestTelemetry(t, telemetry)
 				} else {
@@ -230,11 +226,11 @@ func TestGRPCHandlersPassFiltersWithoutBreakingPropagation(t *testing.T) {
 }
 
 func TestGRPCHandlersKeepServiceProvidersAndPropagator(t *testing.T) {
-	globals := newGRPCTestTelemetry(t, true, true)
-	installGRPCTestGlobals(t, globals.service)
-	override := newGRPCTestTelemetry(t, true, true)
-	clientTelemetry := newGRPCTestTelemetry(t, true, true)
-	serverTelemetry := newGRPCTestTelemetry(t, true, true)
+	globals := newTestTelemetry(t, true, true)
+	installTestGlobals(t, globals.service)
+	override := newTestTelemetry(t, true, true)
+	clientTelemetry := newTestTelemetry(t, true, true)
+	serverTelemetry := newTestTelemetry(t, true, true)
 	opts := []otelgrpc.Option{
 		otelgrpc.WithTracerProvider(override.service.tracerProvider),
 		otelgrpc.WithMeterProvider(override.service.meterProvider),
@@ -278,52 +274,6 @@ func TestGRPCHandlersKeepServiceProvidersAndPropagator(t *testing.T) {
 	assertGRPCTestDuration(t, serverTelemetry.reader, "server", healthpb.Health_Check_FullMethodName, "OK", 1)
 	assertNoGRPCTestTelemetry(t, globals)
 	assertNoGRPCTestTelemetry(t, override)
-}
-
-type grpcTestTelemetry struct {
-	service  Service
-	exporter *tracetest.InMemoryExporter
-	reader   *sdkmetric.ManualReader
-}
-
-func newGRPCTestTelemetry(t *testing.T, traces, metrics bool) grpcTestTelemetry {
-	t.Helper()
-	t.Setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "")
-	exporter := tracetest.NewInMemoryExporter()
-	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
-	reader := sdkmetric.NewManualReader()
-	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := tp.Shutdown(ctx); err != nil {
-			t.Errorf("shutdown tracer provider: %v", err)
-		}
-		if err := mp.Shutdown(ctx); err != nil {
-			t.Errorf("shutdown meter provider: %v", err)
-		}
-	})
-	svc := Service{tracerProvider: nooptrace.NewTracerProvider(), meterProvider: noopmetric.NewMeterProvider()}
-	if traces {
-		svc.tracerProvider = tp
-	}
-	if metrics {
-		svc.meterProvider = mp
-	}
-	return grpcTestTelemetry{service: svc, exporter: exporter, reader: reader}
-}
-
-func installGRPCTestGlobals(t *testing.T, svc Service) {
-	t.Helper()
-	tp, mp, propagator := otel.GetTracerProvider(), otel.GetMeterProvider(), otel.GetTextMapPropagator()
-	otel.SetTracerProvider(svc.tracerProvider)
-	otel.SetMeterProvider(svc.meterProvider)
-	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator())
-	t.Cleanup(func() {
-		otel.SetTracerProvider(tp)
-		otel.SetMeterProvider(mp)
-		otel.SetTextMapPropagator(propagator)
-	})
 }
 
 type grpcTestHealthServer struct {
@@ -468,7 +418,7 @@ func assertGRPCTestDuration(t *testing.T, reader *sdkmetric.ManualReader, side, 
 	}
 }
 
-func assertNoGRPCTestTelemetry(t *testing.T, telemetry grpcTestTelemetry) {
+func assertNoGRPCTestTelemetry(t *testing.T, telemetry testTelemetry) {
 	t.Helper()
 	if spans := telemetry.exporter.GetSpans(); len(spans) != 0 {
 		t.Fatalf("unexpected spans: %v", spans)
