@@ -4,7 +4,7 @@
 
 * `server` mode показывает HTTP middleware для server spans и HTTP metrics;
 * `handler` добавляет custom span и custom metric;
-* `client` передает W3C trace context через `otelhttp.NewTransport`, а server продолжает trace через HTTP middleware.
+* `client` передает W3C trace context через `obs.HTTPTransport`, а server продолжает trace через HTTP middleware.
 
 ## Запуск
 
@@ -66,7 +66,7 @@ observability-example-client demo.client.request
 
 `localhost HTTP GET` добавляет `traceparent`, а server middleware читает его и связывает `/demo` с client trace.
 
-В `client` mode `obs.InstallGlobal()` делает providers доступными для `otelhttp.NewTransport`.
+HTTP transport использует providers и propagator из `obs`, без `InstallGlobal()`.
 
 ## Metrics
 
