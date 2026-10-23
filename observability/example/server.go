@@ -8,14 +8,14 @@ import (
 
 	"github.com/LeKovr/go-kit/observability"
 	"github.com/LeKovr/go-kit/server"
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
-	"go.opentelemetry.io/otel/trace"
 )
 
 type DemoHandler struct {
 	logger *slog.Logger
-	tracer trace.Tracer
 
 	requests metric.Int64Counter
 }
@@ -29,9 +29,27 @@ func runServer(ctx context.Context, cfg Config, obs *observability.Service) erro
 		return err
 	}
 
+	conn, err := nats.Connect(cfg.NATS.URL,
+		nats.Name(application+"-server"), nats.Timeout(cfg.NATS.Timeout),
+	)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	client := obs.NATSClient(conn)
+	js, err := jetstream.New(conn)
+	if err != nil {
+		return err
+	}
+	publisher := obs.JetStreamPublisher(js)
+
 	srv := server.New(cfg.Server)
 	srv.Use(obs.HTTPMiddleware())
 	srv.ServeMux().HandleFunc("/demo", demoHandler.Handle)
+	srv.ServeMux().HandleFunc("/demo/nats", natsHTTPHandler(client.RequestMsg, cfg.NATS.Timeout, telemetry.Logger))
+	srv.ServeMux().HandleFunc("/demo/nats/publish", natsPublishHTTPHandler(client.PublishMsg, telemetry.Logger))
+
+	srv.ServeMux().HandleFunc("/demo/jetstream", jetStreamHTTPHandler(publisher.PublishMsg, cfg.NATS.Timeout, telemetry.Logger))
 
 	return srv.Run(ctx)
 }
@@ -48,7 +66,6 @@ func NewDemoHandler(telemetry Telemetry) (*DemoHandler, error) {
 
 	return &DemoHandler{
 		logger:   telemetry.Logger,
-		tracer:   telemetry.Tracer,
 		requests: requests,
 	}, nil
 }
@@ -77,11 +94,6 @@ func (h DemoHandler) RecordRequest(ctx context.Context) {
 }
 
 func (h DemoHandler) Calculate(ctx context.Context) {
-	ctx, span := h.tracer.Start(ctx, "demo.calculate")
-	defer span.End()
-
-	span.SetAttributes(attribute.String("demo.step", "calculate"))
-
 	h.logger.InfoContext(ctx, "demo calculation started")
 
 	time.Sleep(250 * time.Millisecond)

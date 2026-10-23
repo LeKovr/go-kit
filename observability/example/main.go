@@ -14,9 +14,10 @@ import (
 
 // Config holds all config vars.
 type Config struct {
-	Mode string `long:"mode" default:"server" choice:"server" choice:"client" description:"Example mode: server or client" env:"MODE"`
+	Mode string `long:"mode" default:"server" choice:"server" choice:"client" choice:"worker" description:"Example mode: server, client or worker" env:"MODE"`
 
 	Server        server.Config        `group:"HTTP Options" namespace:"http" env-namespace:"HTTP"`
+	NATS          NATSConfig           `group:"NATS Options" namespace:"nats" env-namespace:"NATS"`
 	Client        ClientConfig         `group:"Client Options" namespace:"client" env-namespace:"CLIENT"`
 	Logger        slogger.Config       `group:"Logging Options" namespace:"log" env-namespace:"LOG"`
 	Observability observability.Config `group:"OpenTelemetry Options" namespace:"otel" env-namespace:"OTEL"`
@@ -65,6 +66,8 @@ func main() {
 	switch cfg.Mode {
 	case "server":
 		err = runServer(ctx, cfg, obs)
+	case "worker":
+		err = runNATSWorker(ctx, cfg, obs)
 	case "client":
 		err = runClient(ctx, cfg.Client, obs)
 	default:

@@ -26,9 +26,6 @@ func runClient(ctx context.Context, cfg ClientConfig, obs *observability.Service
 	restore := obs.InstallGlobal()
 	defer restore()
 
-	ctx, span := telemetry.Tracer.Start(ctx, "demo.client.request")
-	defer span.End()
-
 	client := &http.Client{
 		Transport: otelhttp.NewTransport(http.DefaultTransport),
 		Timeout:   cfg.Timeout,
