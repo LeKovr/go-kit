@@ -19,23 +19,81 @@
 * traces и metrics с экспортом в OTLP endpoint
 * W3C propagation (`traceparent`, `baggage`)
 * Go runtime metrics
-* HTTP middleware на базе `otelhttp`
+* HTTP server/client instrumentation на базе `otelhttp`
+* gRPC client/server instrumentation на базе `otelgrpc`, включая streaming
 * `Meter` и `Tracer` для бизнес-метрик и прикладных span
 
 ## Использование
+
+### Инициализация
 
 ```go
 obs, err := observability.New(ctx, cfg.Observability, application, version)
 if err != nil {
 	return err
 }
-defer obs.Shutdown(ctx)
+defer obs.Shutdown(context.Background())
+```
 
+### InstallGlobal
+
+Для сторонних библиотек, использующих глобальные OTel providers и propagator:
+
+```go
+restore := obs.InstallGlobal()
+defer restore()
+```
+
+### HTTP
+
+Сервер:
+
+```go
 srv := server.New(cfg.Server)
 srv.Use(obs.HTTPMiddleware())
 ```
 
-Полный пример запуска с OpenTelemetry Collector и OpenObserve см. в [example](example)
+Клиент:
+
+```go
+client := &http.Client{
+	Transport: obs.HTTPTransport(http.DefaultTransport),
+	Timeout:   cfg.Client.Timeout,
+}
+```
+
+Полный HTTP-пример с OpenTelemetry Collector и OpenObserve см. в [example](example).
+
+### gRPC
+
+Сервер:
+
+```go
+srv := grpc.NewServer(
+	grpc.StatsHandler(obs.GRPCServerHandler()),
+)
+```
+
+Клиент:
+
+```go
+conn, err := grpc.NewClient(
+	target,
+	grpc.WithTransportCredentials(creds),
+	grpc.WithStatsHandler(obs.GRPCClientHandler()),
+)
+if err != nil {
+	return err
+}
+defer conn.Close()
+```
+
+Handlers поддерживают unary и streaming RPC. Вызовам клиента передавайте текущий
+`ctx` обработчика, чтобы сохранить связь traces.
+
+Оба метода принимают [опции `otelgrpc`](https://pkg.go.dev/go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc#Option),
+например `WithFilter` для исключения RPC. Providers и propagator всегда берутся
+из `obs` и имеют приоритет над options.
 
 ## Архитектура
 

@@ -61,6 +61,21 @@ func (svc Service) HTTPMiddleware(opts ...HTTPOption) func(http.Handler) http.Ha
 	}
 }
 
+// HTTPTransport returns client instrumentation for base; nil uses http.DefaultTransport.
+// Service providers and propagation take precedence over opts; OTel globals are not used.
+// The caller retains ownership of base, including its idle connections.
+func (svc Service) HTTPTransport(base http.RoundTripper, opts ...otelhttp.Option) http.RoundTripper {
+	options := make([]otelhttp.Option, 0, len(opts)+3)
+	options = append(options, opts...)
+	options = append(options,
+		otelhttp.WithTracerProvider(svc.tracerProviderOrNoop()),
+		otelhttp.WithMeterProvider(svc.meterProviderOrNoop()),
+		otelhttp.WithPropagators(svc.propagator()),
+	)
+
+	return otelhttp.NewTransport(base, options...)
+}
+
 func defaultHTTPConfig() httpConfig {
 	ignored := make(map[string]struct{}, len(defaultIgnoredPaths))
 	for _, path := range defaultIgnoredPaths {
