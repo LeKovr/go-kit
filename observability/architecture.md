@@ -6,22 +6,25 @@
 
 `slogger` пишет JSON-логи с `trace_id`/`span_id` в `stderr` или файл, а Collector читает их через `filelog` или `journald`
 
-Сбор `host metrics` и логов, обработка сигналов и маршрутизация в один или несколько backend-ов относятся к инфраструктурному слою и настраиваются в конфигурации Collector
+Сбор `host metrics` и логов, обработка сигналов и маршрутизация в один или несколько backend-ов относятся к инфраструктурному слою и настраиваются в конфигурации Collector.
 
 ```mermaid
 flowchart TB
     subgraph app_layer["Go service process"]
         app["Application code"]
         runtime["Go runtime"]
-        otel["OpenTelemetry SDK"]
-        logger["slogger"]
+        logger["go-kit/slogger"]
 
-        app --> |"otelhttp + custom spans / metrics"| otel
-        runtime -->|"Go runtime metrics<br/>memory / GC / goroutines / scheduler"| otel
-        app --> logger
+        subgraph observability_layer["go-kit/observability"]
+            otel["OpenTelemetry SDK"]
+        end
+
+        app -->|"spans + metrics"| otel
+        runtime -->|"runtime metrics"| otel
+        app -->|"logs + context"| logger
     end
 
-    host["Host / container runtime"]
+    host["Host / container runtime<br/>CPU · RAM · disk · network"]
 
     subgraph collector_layer["OpenTelemetry Collector"]
         otlp_receiver["OTLP receiver<br/>gRPC / HTTP"]
@@ -45,8 +48,8 @@ flowchart TB
 
     otel -->|"traces + metrics"| otlp_receiver
     logger -->|"JSON logs"| log_receiver
-    host -->|"host metrics<br/>CPU / RAM / disk / network"| hostmetrics_receiver
-    exporters -->|"logs + metrics + traces"| openobserve
+    host -->|"host metrics"| hostmetrics_receiver
+    exporters -->|"logs · metrics · traces"| openobserve
     exporters -.->|"logs"| logs_backend
     exporters -.->|"traces"| traces_backend
     exporters -.->|"metrics"| metrics_backend
