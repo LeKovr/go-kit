@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/LeKovr/go-kit/observability"
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 type ClientConfig struct {
@@ -22,12 +21,8 @@ func runClient(ctx context.Context, cfg ClientConfig, obs *observability.Service
 	const instrumentation = application + "/client"
 	telemetry := newTelemetry(slog.Default(), obs, instrumentation)
 
-	// otelhttp.NewTransport uses process-wide providers and propagators by default.
-	restore := obs.InstallGlobal()
-	defer restore()
-
 	client := &http.Client{
-		Transport: otelhttp.NewTransport(http.DefaultTransport),
+		Transport: obs.HTTPTransport(http.DefaultTransport),
 		Timeout:   cfg.Timeout,
 	}
 
