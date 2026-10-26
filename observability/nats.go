@@ -2,13 +2,14 @@ package observability
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/nats-io/nats.go"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -52,8 +53,9 @@ func (c *NATSClient) PublishMsg(ctx context.Context, msg *nats.Msg) (err error) 
 	return c.conn.PublishMsg(c.tracing.message(ctx, msg))
 }
 
-// RequestMsg traces the entire request until a reply, timeout or error. The reply
-// does not replace the caller's context or create a separate receive span.
+// RequestMsg traces sending and waiting for a reply in a producer span.
+// The span ends at the reply, timeout or error. The reply does not replace
+// the caller's context or create a separate receive span.
 func (c *NATSClient) RequestMsg(ctx context.Context, msg *nats.Msg) (reply *nats.Msg, err error) {
 	if ctx == nil {
 		return nil, nats.ErrInvalidContext
@@ -61,7 +63,7 @@ func (c *NATSClient) RequestMsg(ctx context.Context, msg *nats.Msg) (reply *nats
 	if msg == nil {
 		return nil, nats.ErrInvalidMsg
 	}
-	ctx, span := c.tracing.start(ctx, "request", msg.Subject, len(msg.Data), trace.SpanKindClient)
+	ctx, span := c.tracing.start(ctx, "request", msg.Subject, len(msg.Data), trace.SpanKindProducer)
 	defer endNATSSpan(span, &err)
 	return c.conn.RequestMsgWithContext(ctx, c.tracing.message(ctx, msg))
 }
@@ -102,16 +104,22 @@ func newNATSHandlerConfig(base context.Context, nilHandler bool, opts []NATSOpti
 }
 
 func (t natsTracing) start(ctx context.Context, operation, subject string, size int, kind trace.SpanKind, opts ...trace.SpanStartOption) (context.Context, trace.Span) {
+	operationType := semconv.MessagingOperationTypeSend
+	if operation == "process" {
+		operationType = semconv.MessagingOperationTypeProcess
+	}
 	opts = append(opts, trace.WithSpanKind(kind), trace.WithAttributes(
-		attribute.String("messaging.system", "nats"),
-		attribute.String("messaging.operation.name", operation),
-		attribute.String("messaging.destination.name", subject),
-		attribute.Int("messaging.message.body.size", size),
+		semconv.MessagingSystemKey.String("nats"),
+		semconv.MessagingOperationName(operation),
+		operationType,
+		semconv.MessagingDestinationName(subject),
+		semconv.MessagingMessageBodySize(size),
 	))
 	// Reply inboxes are unique per request; keep span names stable.
 	name := subject
 	if strings.HasPrefix(subject, "_INBOX.") {
 		name = "_INBOX.*"
+		opts = append(opts, trace.WithAttributes(semconv.MessagingDestinationTemplate(name)))
 	}
 	return t.tracer.Start(ctx, operation+" "+name, opts...)
 }
@@ -157,14 +165,31 @@ func (t natsTracing) process(base context.Context, headers nats.Header, subject 
 
 func endNATSSpan(span trace.Span, err *error) {
 	if recovered := recover(); recovered != nil {
+		span.SetAttributes(semconv.ErrorTypeKey.String("panic"))
 		span.RecordError(fmt.Errorf("panic: %v", recovered))
 		span.SetStatus(codes.Error, "panic in NATS operation")
 		span.End()
 		panic(recovered)
 	}
 	if *err != nil {
+		span.SetAttributes(semconv.ErrorTypeKey.String(natsErrorType(*err)))
 		span.RecordError(*err)
 		span.SetStatus(codes.Error, (*err).Error())
 	}
 	span.End()
+}
+
+func natsErrorType(err error) string {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, nats.ErrTimeout):
+		return "timeout"
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	case errors.Is(err, nats.ErrNoResponders):
+		return "no_responders"
+	case errors.Is(err, nats.ErrConnectionClosed):
+		return "connection_closed"
+	default:
+		return "_OTHER"
+	}
 }

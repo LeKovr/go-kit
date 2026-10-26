@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package demo;
+
+option go_package = "github.com/LeKovr/go-kit/observability/example/api";
+
+service Calculator {
+  rpc Calculate(CalculateRequest) returns (CalculateResponse);
+}
+
+message CalculateRequest {}
+
+message CalculateResponse {
+  string result = 1;
+}

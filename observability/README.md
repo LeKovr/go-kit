@@ -21,7 +21,7 @@
 * Go runtime metrics
 * HTTP server/client instrumentation на базе `otelhttp`
 * gRPC client/server instrumentation на базе `otelgrpc`, включая streaming
-* Core NATS и JetStream: отправка, request/reply и обработчики с передачей контекста
+* Core NATS и JetStream: отправка и обработка сообщений с передачей контекста
 * `Meter` и `Tracer` для бизнес-метрик и прикладных span
 
 ## Использование
@@ -53,6 +53,9 @@ defer restore()
 srv := server.New(cfg.Server)
 srv.Use(obs.HTTPMiddleware())
 ```
+
+Имя server span — `METHOD route`, где `route` — шаблон из `Request.Pattern`.
+Без шаблона используется только метод, например `GET`.
 
 Клиент:
 
@@ -96,88 +99,76 @@ Handlers поддерживают unary и streaming RPC. Вызовам кли�
 например `WithFilter` для исключения RPC. Providers и propagator всегда берутся
 из `obs` и имеют приоритет над options.
 
-## NATS
+### NATS
 
-Подключение создаётся обычным `nats.Connect`. `Service` предоставляет адаптеры
-отправителя и обработчиков с собственными tracer и W3C propagator;
-`InstallGlobal()` не требуется. Instrumentation scope равен имени сервиса.
+Core NATS:
 
 ```go
-conn, err := nats.Connect(url, nats.Name(application))
-if err != nil {
-    return err
-}
-defer conn.Close()
-
 client := obs.NATSClient(conn)
 _, err = conn.QueueSubscribe("jobs.created", "workers", obs.NATSHandler(workerCtx,
-    func(ctx context.Context, msg *nats.Msg) error {
-        return process(ctx, msg.Data)
-    },
+	func(ctx context.Context, msg *nats.Msg) error {
+		return process(ctx, msg.Data)
+	},
 ))
 if err != nil {
-    return err
+	return err
 }
 if err := client.PublishMsg(ctx, &nats.Msg{Subject: "jobs.created", Data: payload}); err != nil {
-    return err
+	return err
 }
 ```
 
-Для request/reply используется `client.RequestMsg(ctx, msg)`: один client span
-измеряет весь вызов до ответа, ошибки или таймаута. Ответ публикуется через
-`client.PublishMsg(ctx, &nats.Msg{Subject: request.Reply, Data: result})` из контекста
-обработчика. Полученный ответ не заменяет контекст вызывающей стороны.
+Для request/reply используйте `client.RequestMsg(ctx, msg)`. Ответ отправляется через
+`client.PublishMsg` на subject `msg.Reply` из контекста обработчика.
 
-JetStream создаётся через `jetstream.New(conn)`. Для синхронной публикации
-используется `obs.JetStreamPublisher(js).PublishMsg(ctx, msg, opts...)`, а обработчик
-подключается к существующему consumer:
+Для JetStream используйте `obs.JetStreamPublisher(js).PublishMsg(ctx, msg, opts...)`.
+Обработчик подключается к существующему consumer:
 
 ```go
 consume, err := consumer.Consume(obs.JetStreamHandler(workerCtx,
-    func(ctx context.Context, msg jetstream.Msg) error {
-        if err := process(ctx, msg.Data()); err != nil {
-            return errors.Join(err, msg.Nak())
-        }
-        return msg.Ack()
-    },
-    observability.WithNATSNewTrace(),
+	func(ctx context.Context, msg jetstream.Msg) error {
+		if err := process(ctx, msg.Data()); err != nil {
+			return errors.Join(err, msg.Nak())
+		}
+		return msg.Ack()
+	},
+	observability.WithNATSNewTrace(),
 ))
+if err != nil {
+	return err
+}
+defer consume.Stop()
 ```
 
-По умолчанию process span продолжает входящий trace. `WithNATSNewTrace()` создаёт
-новый trace со ссылкой на входящий span. Baggage сохраняется в обоих режимах.
-`workerCtx` задаёт локальные values, deadline и cancellation; удалённая отмена и
-deadline через заголовки не передаются. Context обработчика действует до возврата
-callback; фоновую работу и завершение подписок организует приложение.
-
-Обвязка записывает возвращённые ошибки в span. Panic записывается и пробрасывается
-дальше. Логирование, ответы, Ack/Nak/Term и повторную обработку определяет приложение.
-ACK внутри callback входит в длительность process span; отдельного ACK span нет.
-
-| Операция | Граница span |
+| Вызов | Граница span |
 | --- | --- |
-| Core `PublishMsg` | Вызов публикации в клиенте, без подтверждения доставки. `ctx` используется для telemetry, не для отмены native publish. |
-| Core `RequestMsg` | Вызов до ответа, ошибки или таймаута. |
-| JetStream `PublishMsg` | Публикация до PubAck или ошибки. PubAck не означает завершение обработки consumer. |
-| Handler | Выполнение callback, включая явные ответ или ACK внутри него. |
+| Core `PublishMsg` | Возврат из публикации в клиенте, без подтверждения доставки и отмены через `ctx`. |
+| Core `RequestMsg` | Получение reply, ошибка или таймаут, включая ожидание ответа. |
+| JetStream `PublishMsg` | Получение PubAck или ошибки. PubAck подтверждает приём брокером, не завершение обработки. |
+| Handler | Возврат callback, включая ответ или ACK внутри него. |
 
-Отправка копирует сообщение и его заголовки, заменяя поля propagation данными из
-переданного `ctx`. Исходные заголовки не изменяются; payload не копируется, его нельзя
-менять во время вызова. Заголовки читаются без учёта регистра, несколько значений
-baggage сохраняются. Конфликтующие traceparent не выбираются произвольно: такой
-входящий trace context считается невалидным.
+Отправка создаёт spans `Producer` с `messaging.operation.type=send`, обработка —
+`Consumer` с типом `process`. У request сохраняется `messaging.operation.name=request`.
+Исходный subject записывается в `messaging.destination.name`; для `_INBOX.…`
+используется шаблон `_INBOX.*` в имени span и `messaging.destination.template`.
 
-При выключенных traces доступны только propagation и выполнение исходных операций:
-новые spans не экспортируются, входящий trace context и baggage сохраняются, включая
-режим `WithNATSNewTrace()`. Глобальные OTel providers на эти адаптеры не влияют.
+По умолчанию обработчик продолжает входящий trace. `WithNATSNewTrace()` создаёт
+новый trace со ссылкой на входящий span. Baggage сохраняется в обоих случаях.
+`workerCtx` задаёт локальные values, deadline и cancellation; отмена и deadline
+отправителя через NATS не передаются. Возврат callback завершает span, срок жизни
+context определяется `workerCtx`.
 
-Подписки, `Drain`, `Close`, TLS, credentials и reconnect остаются в `nats.go`.
-Первая версия покрывает Core send/request и JetStream sync publish/callback.
-Вызовы через исходные клиенты, async publish и batch/fetch автоматически не
-инструментируются. Собственные метрики NATS в эту обвязку не входят.
+Ошибки записываются в span с `error.type`: `timeout`, `canceled`, `no_responders`,
+`connection_closed` или `_OTHER`. Классификация через `errors.Is` учитывает
+обёрнутые ошибки. Panic получает тип `panic` и пробрасывается дальше.
+При успехе `error.type` отсутствует.
 
-Полный запуск Core и JetStream с Docker NATS, Collector и OpenObserve описан в
-[example](example).
+Заголовки читаются без учёта регистра: используется первое значение `traceparent`
+и все значения baggage. Отправка копирует заголовки; payload нельзя менять во время
+вызова. При выключенных traces передаются trace context и baggage без новых spans.
+
+Соединение, подписки, ACK, retry и shutdown остаются у приложения. Async publish
+и batch/fetch не инструментируются. Пример запуска см. в [example](example).
 
 ## Архитектура
 

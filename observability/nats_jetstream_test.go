@@ -9,6 +9,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/baggage"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -84,6 +85,13 @@ func TestJetStreamPublishAndProcess(t *testing.T) {
 	if len(exporter) != 0 {
 		t.Fatal("process span ended before handler return")
 	}
+	attrs := attribute.NewSet(publish.Attributes()...)
+	if value, ok := attrs.Value("messaging.operation.type"); !ok || value.AsString() != "send" {
+		t.Errorf("publish operation.type = %v, want send", value)
+	}
+	if attrs.HasValue("error.type") || attrs.HasValue("messaging.batch.message_count") {
+		t.Error("successful single-message publish must not set error.type or batch.message_count")
+	}
 	release()
 	process := takeNATSSpans(t, exporter, 1)["process js.events"]
 	if process == nil || process.SpanKind() != trace.SpanKindConsumer || process.Parent().SpanID() != publish.SpanContext().SpanID() {
@@ -91,6 +99,13 @@ func TestJetStreamPublishAndProcess(t *testing.T) {
 	}
 	if process.Status().Code != codes.Error || len(process.Events()) == 0 {
 		t.Fatal("consumer error was not recorded")
+	}
+	attrs = attribute.NewSet(process.Attributes()...)
+	if value, ok := attrs.Value("messaging.operation.type"); !ok || value.AsString() != "process" {
+		t.Errorf("handler operation.type = %v, want process", value)
+	}
+	if value, ok := attrs.Value("error.type"); !ok || value.AsString() != "_OTHER" {
+		t.Errorf("handler error.type = %v, want _OTHER", value)
 	}
 	info, err := consumer.Info(ctx)
 	if err != nil || info.NumAckPending != 1 {
@@ -116,5 +131,9 @@ func TestJetStreamPublishAndProcess(t *testing.T) {
 	failed := takeNATSSpans(t, exporter, 1)["publish js.events"]
 	if failed == nil || failed.Status().Code != codes.Error || len(failed.Events()) == 0 {
 		t.Fatal("JetStream publish error was not recorded")
+	}
+	attrs = attribute.NewSet(failed.Attributes()...)
+	if value, ok := attrs.Value("error.type"); !ok || value.AsString() != "canceled" {
+		t.Errorf("publish error.type = %v, want canceled", value)
 	}
 }

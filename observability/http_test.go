@@ -58,8 +58,78 @@ func TestServiceHTTPMiddlewareCreatesSpan(t *testing.T) {
 	if len(spans) != 1 {
 		t.Fatalf("expected one span, got %d", len(spans))
 	}
-	if spans[0].Name != "POST /items/42" {
+	if spans[0].Name != "POST" {
 		t.Fatalf("unexpected span name: %q", spans[0].Name)
+	}
+}
+
+func TestHTTPMiddlewareNamesServeMuxRoutes(t *testing.T) {
+	for _, tt := range []struct {
+		name, pattern, method, target, want string
+	}{
+		{"path pattern", "/demo", http.MethodGet, "/demo", "GET /demo"},
+		{"method pattern", "GET /demo", http.MethodGet, "/demo", "GET /demo"},
+		{"route template", "/users/{id}", http.MethodGet, "/users/42", "GET /users/{id}"},
+		{"head matches get", "GET /demo", http.MethodHead, "/demo", "HEAD /demo"},
+		{"method whitespace", "GET\t /demo", http.MethodGet, "/demo", "GET /demo"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			telemetry := newTestTelemetry(t, true, false)
+			mux := http.NewServeMux()
+			mux.HandleFunc(tt.pattern, func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusNoContent)
+			})
+
+			handler := telemetry.service.HTTPMiddleware()(mux)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, httptest.NewRequest(tt.method, tt.target, nil))
+			if rec.Code != http.StatusNoContent {
+				t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
+			}
+
+			spans := telemetry.exporter.GetSpans()
+			if len(spans) != 1 {
+				t.Fatalf("expected one span, got %d", len(spans))
+			}
+			if spans[0].Name != tt.want {
+				t.Fatalf("span name = %q, want %q", spans[0].Name, tt.want)
+			}
+		})
+	}
+}
+
+func TestHTTPMiddlewareOmitsPathWithoutRoute(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		next   http.Handler
+		status int
+	}{
+		{"handler without route", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		}), http.StatusNoContent},
+		{"unmatched ServeMux", http.NewServeMux(), http.StatusNotFound},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			telemetry := newTestTelemetry(t, true, false)
+			handler := telemetry.service.HTTPMiddleware()(tt.next)
+			for _, path := range []string{"/user/123", "/user/456"} {
+				rec := httptest.NewRecorder()
+				handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+				if rec.Code != tt.status {
+					t.Fatalf("status for %q = %d, want %d", path, rec.Code, tt.status)
+				}
+			}
+
+			spans := telemetry.exporter.GetSpans()
+			if len(spans) != 2 {
+				t.Fatalf("expected two spans, got %d", len(spans))
+			}
+			for _, span := range spans {
+				if span.Name != http.MethodGet {
+					t.Errorf("span name = %q, want %q", span.Name, http.MethodGet)
+				}
+			}
+		})
 	}
 }
 

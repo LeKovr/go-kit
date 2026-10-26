@@ -1,9 +1,72 @@
+x-example: &example
+  build:
+    context: ../..
+    dockerfile: observability/example/Dockerfile
+  image: ${COMPOSE_PROJECT_NAME:-example}-app:local
+  environment: &example-environment
+    NATS_URL: nats://nats:4222
+    NATS_TIMEOUT: "${NATS_TIMEOUT:-3s}"
+    GRPC_TIMEOUT: "${GRPC_TIMEOUT:-3s}"
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+    OTEL_ENABLE_TRACES: "true"
+    OTEL_ENABLE_METRICS: "true"
+    OTEL_ENABLE_GO_RUNTIME_METRICS: "true"
+    LOG_FORMAT: json
+    LOG_DEBUG: "true"
+    LOG_DEST: /var/log/observability-example/error.log
+    HTTP_ACCESS_LOG: "-"
+  volumes:
+    - ./${LOG_DEST:-error.log}:/var/log/observability-example/error.log
+  # Compose service names must not use the host DNS search domains.
+  dns_search: ["."]
+  stop_grace_period: 20s
+
 services:
+  worker:
+    <<: *example
+    command: ["--mode=nats-worker"]
+    depends_on:
+      nats:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+
+  grpc:
+    <<: *example
+    command: ["--mode=grpc-server"]
+    environment:
+      <<: *example-environment
+      GRPC_ADDRESS: :9090
+    depends_on:
+      worker:
+        condition: service_started
+
+  http-gateway:
+    <<: *example
+    command: ["--mode=http-gateway"]
+    environment:
+      <<: *example-environment
+      GRPC_ADDRESS: grpc:9090
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      grpc:
+        condition: service_started
+
+  client:
+    <<: *example
+    profiles: ["tools"]
+    command: ["--mode=http-client"]
+    environment:
+      <<: *example-environment
+      CLIENT_URL: http://http-gateway:8080/demo
+    depends_on:
+      http-gateway:
+        condition: service_started
+
   nats:
     image: nats:2.12.6-alpine
-    command: ["-js", "-sd", "/data", "-m", "8222"]
-    volumes:
-      - nats-data:/data
+    command: ["-m", "8222"]
     ports:
       - "127.0.0.1:4222:4222"
       - "127.0.0.1:8222:8222"
@@ -12,6 +75,15 @@ services:
       interval: 5s
       timeout: 2s
       retries: 5
+
+  nats-exporter:
+    image: natsio/prometheus-nats-exporter:0.20.2
+    command: ["-varz", "-healthz", "http://nats:8222"]
+    ports:
+      - "127.0.0.1:7777:7777"
+    depends_on:
+      nats:
+        condition: service_healthy
 
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.104.0
@@ -27,6 +99,7 @@ services:
       - "127.0.0.1:4318:4318"
     depends_on:
       - openobserve
+      - nats-exporter
 
   openobserve:
     image: public.ecr.aws/zinclabs/openobserve:latest
@@ -38,5 +111,4 @@ services:
       - openobserve-data:/data
 
 volumes:
-  nats-data:
   openobserve-data:
