@@ -64,6 +64,19 @@ client := &http.Client{
 }
 ```
 
+`HTTPTransport` поддерживает [опции `otelhttp`](https://pkg.go.dev/go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp#Option).
+Для трассировки DNS, подключения и TLS добавьте `HTTPClientTrace`:
+
+```go
+client.Transport = obs.HTTPTransport(http.DefaultTransport, obs.HTTPClientTrace())
+```
+
+`HTTPClientTrace` использует provider из `obs`. Настройки передаются через
+[опции `otelhttptrace`](https://pkg.go.dev/go.opentelemetry.io/contrib/instrumentation/net/http/httptrace/otelhttptrace#ClientTraceOption):
+
+- `WithoutHeaders` отключает запись исходящих заголовков в trace.
+- `WithoutSubSpans` заменяет дочерние spans событиями HTTP span.
+
 Полный HTTP-пример с OpenTelemetry Collector и OpenObserve см. в [example](example).
 
 ### gRPC

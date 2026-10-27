@@ -5,12 +5,15 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httptrace"
 	"strings"
 	"testing"
 	"time"
 
+	"go.opentelemetry.io/contrib/instrumentation/net/http/httptrace/otelhttptrace"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/baggage"
 	noopmetric "go.opentelemetry.io/otel/metric/noop"
 	"go.opentelemetry.io/otel/propagation"
@@ -461,6 +464,97 @@ func TestHTTPTransportKeepsSignalsIndependentOfGlobals(t *testing.T) {
 			}
 			if len(foreign.exporter.GetSpans()) != 0 || len(collectHTTPTransportTestMetrics(t, foreign.reader).ScopeMetrics) != 0 {
 				t.Fatal("transport used global providers or the parent span's provider")
+			}
+		})
+	}
+}
+
+func TestHTTPClientTraceOptionsAndFreshState(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		opts    []otelhttptrace.ClientTraceOption
+		spans   int
+		headers bool
+	}{
+		{name: "defaults", spans: 8, headers: true},
+		{name: "without headers", opts: []otelhttptrace.ClientTraceOption{otelhttptrace.WithoutHeaders()}, spans: 8},
+		{name: "events without headers", opts: []otelhttptrace.ClientTraceOption{otelhttptrace.WithoutHeaders(), otelhttptrace.WithoutSubSpans()}, spans: 2},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			telemetry := newTestTelemetry(t, true, false)
+			foreign := newTestTelemetry(t, true, false)
+			installTestGlobals(t, foreign.service)
+			base := httpTransportTestRoundTripper(func(r *http.Request) (*http.Response, error) {
+				hooks := httptrace.ContextClientTrace(r.Context())
+				if hooks == nil {
+					t.Fatal("request has no client trace")
+				}
+				hooks.DNSStart(httptrace.DNSStartInfo{Host: r.URL.Host})
+				hooks.DNSDone(httptrace.DNSDoneInfo{})
+				hooks.WroteHeaderField("X-Test", []string{"secret"})
+				hooks.WroteHeaders()
+				hooks.WroteRequest(httptrace.WroteRequestInfo{})
+				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("ok"))}, nil
+			})
+			opts := append(tt.opts, otelhttptrace.WithTracerProvider(foreign.service.tracerProvider))
+			transport := telemetry.service.HTTPTransport(base, telemetry.service.HTTPClientTrace(opts...))
+			for range 2 {
+				doHTTPTransportTestRequest(t, t.Context(), transport, "http://example.test/check")
+			}
+			spans := telemetry.exporter.GetSpans()
+			if len(spans) != tt.spans {
+				t.Fatalf("spans = %d, want %d", len(spans), tt.spans)
+			}
+			var requests int
+			for _, span := range spans {
+				if span.Name != "HTTP GET" {
+					continue
+				}
+				requests++
+				attrs := attribute.NewSet(span.Attributes...)
+				header, recorded := attrs.Value("http.request.header.x-test")
+				if recorded != tt.headers || (tt.headers && header.AsString() != "secret") {
+					t.Errorf("recorded header = (%v, %v), want recorded=%v", header, recorded, tt.headers)
+				}
+				if tt.spans == 2 && len(span.Events) != 4 {
+					t.Errorf("request events = %v, want its own DNS and send events", span.Events)
+				}
+			}
+			if requests != 2 || len(foreign.exporter.GetSpans()) != 0 {
+				t.Fatal("client trace used a foreign provider or did not create both request spans")
+			}
+		})
+	}
+}
+
+func TestHTTPClientTraceDisabledDoesNotUseForeignProvider(t *testing.T) {
+	for _, mode := range []string{"disabled", "zero value"} {
+		t.Run(mode, func(t *testing.T) {
+			foreign := newTestTelemetry(t, true, true)
+			installTestGlobals(t, foreign.service)
+			svc := newTestTelemetry(t, false, false).service
+			if mode == "zero value" {
+				svc = Service{}
+			}
+			ctx, parent := foreign.service.Tracer("test-parent").Start(t.Context(), "parent")
+			parent.End()
+			foreign.exporter.Reset()
+			if parent.IsRecording() || !parent.SpanContext().IsSampled() {
+				t.Fatal("regression requires an ended sampled foreign parent")
+			}
+			base := httpTransportTestRoundTripper(func(r *http.Request) (*http.Response, error) {
+				hooks := httptrace.ContextClientTrace(r.Context())
+				if hooks == nil {
+					t.Fatal("request has no client trace")
+				}
+				hooks.DNSStart(httptrace.DNSStartInfo{Host: r.URL.Host})
+				hooks.DNSDone(httptrace.DNSDoneInfo{})
+				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("ok"))}, nil
+			})
+			transport := svc.HTTPTransport(base, svc.HTTPClientTrace(otelhttptrace.WithTracerProvider(foreign.service.tracerProvider)))
+			doHTTPTransportTestRequest(t, ctx, transport, "http://example.test/check")
+			if spans := foreign.exporter.GetSpans(); len(spans) != 0 {
+				t.Fatalf("disabled client trace leaked spans through a foreign provider: %v", spans)
 			}
 		})
 	}
