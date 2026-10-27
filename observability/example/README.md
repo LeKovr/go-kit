@@ -1,150 +1,50 @@
 # observability example
 
-Минимальный пример HTTP server и HTTP client с observability:
-
-* `server` mode показывает HTTP middleware для server spans и HTTP metrics;
-* `handler` добавляет custom span и custom metric;
-* `client` передает W3C trace context через `obs.HTTPTransport`, а server продолжает trace через HTTP middleware.
+Один пример связывает HTTP, gRPC и Core NATS. Приложение запускается четырьмя
+процессами с режимами `http-client`, `http-gateway`, `grpc-server` и `nats-worker`.
 
 ## Запуск
 
 ```sh
 make up
-make run
+make requests
 ```
 
-Обычный запрос:
+`make up` собирает приложения, запускает NATS, Collector, OpenObserve и NATS exporter.
+Команда ждёт готовности OpenObserve. `make requests` запускает HTTP client,
+который отправляет один запрос `/demo` через всю цепочку и получает
+`200 OK` с телом `ok`.
 
-```sh
-curl -v http://localhost:8080/demo
-```
+## Что проверить
 
-Запрос с trace context:
-
-```sh
-make run MODE=client
-```
-
-OpenObserve UI:
+Откройте [OpenObserve](http://localhost:5080). Логин и пароль находятся в `.env`
+и выводятся при `make up`. Для запроса ожидается один trace из семи spans:
 
 ```text
-http://localhost:5080
+http-client: HTTP GET
+└── http-gateway: GET /demo
+    └── http-gateway: demo.Calculator/Calculate
+        └── grpc-server: demo.Calculator/Calculate
+            └── grpc-server: request demo.calculate
+                └── nats-worker: process demo.calculate
+                    └── nats-worker: publish _INBOX.*
 ```
 
-Логин и пароль лежат в `.env`:
+Проверить baggage отдельным запросом:
 
 ```sh
-grep ZO_ROOT_USER_EMAIL .env
-grep ZO_ROOT_USER_PASSWORD .env
+curl -H 'baggage: job.id=calculation-42' http://localhost:8080/demo
 ```
 
-Посмотреть поток telemetry без UI:
+Worker запишет `job_id=calculation-42` в лог.
+
+Collector отправляет в OpenObserve traces, JSON-логи, HTTP/gRPC и Go runtime
+метрики, счётчик `demo.custom.requests`, системные метрики и метрики NATS exporter.
+Успешный HTTP-ответ подтверждает выполнение запроса; доставку telemetry
+проверяйте отдельно в OpenObserve. Логи Collector:
 
 ```sh
-docker compose logs -f otel-collector
-```
-
-## Traces
-
-Обычный `curl` создает trace на server:
-
-```text
-curl -> server:
-observability-example-server /demo
-└── observability-example-server demo.calculate
-```
-
-`client` mode создает trace на client и продолжает его на server:
-
-```text
-demo client -> server:
-observability-example-client demo.client.request
-└── localhost HTTP GET
-    └── observability-example-server /demo
-        └── observability-example-server demo.calculate
-```
-
-`localhost HTTP GET` добавляет `traceparent`, а server middleware читает его и связывает `/demo` с client trace.
-
-HTTP transport использует providers и propagator из `obs`, без `InstallGlobal()`.
-
-## Metrics
-
-Базовый набор server metrics, который должен появиться после запросов:
-
-| Metric                           | Описание                    |
-|----------------------------------|-----------------------------|
-| `http.server.request.duration`   | Длительность HTTP-запросов. |
-| `http.server.request.body.size`  | Размер тела HTTP-запроса.   |
-| `http.server.response.body.size` | Размер тела HTTP-ответа.    |
-
-Custom metric создается один раз в конструкторе handler-а:
-
-```go
-requests, err := meter.Int64Counter(
-    "demo.custom.requests",
-    metric.WithDescription("Number of custom demo handler calls."),
-    metric.WithUnit("{request}"),
-)
-```
-
-Custom metric записывается внутри handler-а:
-
-```go
-h.requests.Add(ctx, 1, metric.WithAttributes(
-    attribute.String("demo.operation", "request"),
-))
-```
-
-Метрики Go runtime включаются отдельным флагом:
-
-```
---otel.enable_go_runtime_metrics
-```
-
-| Metric                  | Описание                                                |
-|-------------------------|---------------------------------------------------------|
-| `go.config.gogc`        | Текущее значение `GOGC`, которое управляет частотой GC. |
-| `go.memory.used`        | Память, используемая Go runtime.                        |
-| `go.memory.allocated`   | Объем памяти, выделенный Go runtime.                    |
-| `go.memory.allocations` | Количество аллокаций памяти.                            |
-| `go.memory.gc.goal`     | Целевой объем heap перед следующей сборкой мусора.      |
-| `go.goroutine.count`    | Количество активных goroutine.                          |
-| `go.processor.limit`    | Лимит процессоров, доступных Go runtime.                |
-| `go.schedule.duration`  | Время задержки планирования goroutine.                  |
-
-В `otel-collector.yaml` добавлен receiver `hostmetrics`, который собирает системные метрики хоста:
-
-| Metric                        | Описание                                                      |
-|-------------------------------|---------------------------------------------------------------|
-| `system.cpu.time`             | Время CPU по ядрам и состояниям.                              |
-| `system.cpu.load_average.1m`  | Средняя нагрузка CPU за 1 минуту.                             |
-| `system.cpu.load_average.5m`  | Средняя нагрузка CPU за 5 минут.                              |
-| `system.cpu.load_average.15m` | Средняя нагрузка CPU за 15 минут.                             |
-| `system.memory.usage`         | Использование RAM по состояниям: used, free, cached и другим. |
-| `system.network.io`           | Объем сетевого трафика по интерфейсам и направлениям.         |
-| `system.network.errors`       | Количество сетевых ошибок по интерфейсам.                     |
-| `system.network.dropped`      | Количество отброшенных сетевых пакетов.                       |
-| `system.network.packets`      | Количество сетевых пакетов по интерфейсам и направлениям.     |
-| `system.network.connections`  | Количество TCP-соединений по состояниям.                      |
-| `system.processes.count`      | Количество процессов по состояниям.                           |
-| `system.processes.created`    | Количество созданных процессов.                               |
-
-## Logs
-
-Пример показывает доставку структурных JSON-логов приложения в OpenObserve через Collector:
-
-```text
-application -> error.log -> Collector filelog receiver -> OpenObserve
-```
-
-## Главное в коде
-
-`observability.New` создает providers, а middleware подключает HTTP instrumentation:
-
-```go
-obs, err := observability.New(ctx, cfg.Observability, application, version)
-srv.Use(obs.HTTPMiddleware())
+make logs
 ```
 
 ## Остановка
@@ -153,8 +53,16 @@ srv.Use(obs.HTTPMiddleware())
 make down
 ```
 
-Удалить локальные данные OpenObserve:
+Для остановки с удалением локальных данных OpenObserve:
 
 ```sh
 make full-down
 ```
+
+## Код и настройки
+
+- [grpc_server.go](grpc_server.go) отправляет NATS request.
+- [nats_worker.go](nats_worker.go) обрабатывает сообщение и отправляет reply.
+- [flow_test.go](flow_test.go) проверяет связи spans, baggage и `503` без worker.
+- [Makefile.env](Makefile.env) содержит настройки; [docker-compose.yml](docker-compose.yml) задаёт адреса сервисов стенда.
+- [Makefile](Makefile) содержит команды сборки и генерации. Go-код из protobuf уже в репозитории; для запуска `protoc` не нужен.

@@ -14,9 +14,11 @@ import (
 
 // Config holds all config vars.
 type Config struct {
-	Mode string `long:"mode" default:"server" choice:"server" choice:"client" description:"Example mode: server or client" env:"MODE"`
+	Mode string `long:"mode" default:"http-gateway" choice:"http-gateway" choice:"http-client" choice:"grpc-server" choice:"nats-worker" description:"Example mode: http-gateway, http-client, grpc-server or nats-worker" env:"MODE"`
 
 	Server        server.Config        `group:"HTTP Options" namespace:"http" env-namespace:"HTTP"`
+	GRPC          GRPCConfig           `group:"gRPC Options" namespace:"grpc" env-namespace:"GRPC"`
+	NATS          NATSConfig           `group:"NATS Options" namespace:"nats" env-namespace:"NATS"`
 	Client        ClientConfig         `group:"Client Options" namespace:"client" env-namespace:"CLIENT"`
 	Logger        slogger.Config       `group:"Logging Options" namespace:"log" env-namespace:"LOG"`
 	Observability observability.Config `group:"OpenTelemetry Options" namespace:"otel" env-namespace:"OTEL"`
@@ -29,6 +31,10 @@ type Config struct {
 const application = "observability-example"
 
 var version = "0.0-dev"
+
+func serviceName(mode string) string {
+	return application + "-" + mode
+}
 
 func main() {
 	config.SetApplicationVersion(application, version)
@@ -49,10 +55,10 @@ func main() {
 	}
 
 	ctx := context.Background()
-	serviceName := application + "-" + cfg.Mode
+	name := serviceName(cfg.Mode)
 
 	var obs *observability.Service
-	if obs, err = observability.New(ctx, cfg.Observability, serviceName, version); err != nil {
+	if obs, err = observability.New(ctx, cfg.Observability, name, version); err != nil {
 		return
 	}
 
@@ -63,9 +69,13 @@ func main() {
 	}()
 
 	switch cfg.Mode {
-	case "server":
+	case "http-gateway":
 		err = runServer(ctx, cfg, obs)
-	case "client":
+	case "grpc-server":
+		err = runGRPCServer(ctx, cfg, obs)
+	case "nats-worker":
+		err = runNATSWorker(ctx, cfg, obs)
+	case "http-client":
 		err = runClient(ctx, cfg.Client, obs)
 	default:
 		err = fmt.Errorf("unsupported mode %q", cfg.Mode)

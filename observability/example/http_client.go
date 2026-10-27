@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/LeKovr/go-kit/observability"
+	"github.com/LeKovr/go-kit/slogger"
 )
 
 type ClientConfig struct {
@@ -18,11 +19,7 @@ type ClientConfig struct {
 }
 
 func runClient(ctx context.Context, cfg ClientConfig, obs *observability.Service) error {
-	const instrumentation = application + "/client"
-	telemetry := newTelemetry(slog.Default(), obs, instrumentation)
-
-	ctx, span := telemetry.Tracer.Start(ctx, "demo.client.request")
-	defer span.End()
+	logger := slogger.WithScope(slog.Default(), application+"/http-client")
 
 	client := &http.Client{
 		Transport: obs.HTTPTransport(http.DefaultTransport),
@@ -34,26 +31,19 @@ func runClient(ctx context.Context, cfg ClientConfig, obs *observability.Service
 		return err
 	}
 
-	telemetry.Logger.DebugContext(ctx, "demo client request started", "url", cfg.URL)
-
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 
-	telemetry.Logger.DebugContext(ctx, "demo client response received", "status", resp.Status)
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
+	logger.DebugContext(ctx, "demo client response received", "status", resp.Status)
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return fmt.Errorf("unexpected status: %s: %s", resp.Status, string(body))
+		return fmt.Errorf("unexpected status: %s", resp.Status)
 	}
 
-	_, err = os.Stdout.Write(body)
+	_, err = io.Copy(os.Stdout, resp.Body)
 
 	return err
 }

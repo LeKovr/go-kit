@@ -2,6 +2,7 @@ package observability
 
 import (
 	"net/http"
+	"strings"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
@@ -26,7 +27,7 @@ func WithIgnoredPaths(paths ...string) HTTPOption {
 	}
 }
 
-// WithSpanNameFormatter replaces the default "METHOD /path" span name.
+// WithSpanNameFormatter replaces the default method and optional route span name.
 func WithSpanNameFormatter(formatter func(string, *http.Request) string) HTTPOption {
 	return func(cfg *httpConfig) {
 		if formatter != nil {
@@ -85,11 +86,14 @@ func defaultHTTPConfig() httpConfig {
 	return httpConfig{
 		ignoredPaths: ignored,
 		spanNameFormatter: func(_ string, r *http.Request) string {
-			if r.Pattern != "" {
-				return r.Pattern
+			if r.Pattern == "" {
+				return r.Method
 			}
-
-			return r.Method + " " + r.URL.Path
+			route := r.Pattern
+			if i := strings.IndexAny(route, " \t"); i >= 0 {
+				route = strings.TrimLeft(route[i+1:], " \t")
+			}
+			return r.Method + " " + route
 		},
 	}
 }

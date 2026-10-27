@@ -21,6 +21,7 @@
 * Go runtime metrics
 * HTTP server/client instrumentation на базе `otelhttp`
 * gRPC client/server instrumentation на базе `otelgrpc`, включая streaming
+* Core NATS и JetStream: отправка и обработка сообщений с передачей контекста
 * `Meter` и `Tracer` для бизнес-метрик и прикладных span
 
 ## Использование
@@ -94,6 +95,79 @@ Handlers поддерживают unary и streaming RPC. Вызовам кли�
 Оба метода принимают [опции `otelgrpc`](https://pkg.go.dev/go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc#Option),
 например `WithFilter` для исключения RPC. Providers и propagator всегда берутся
 из `obs` и имеют приоритет над options.
+
+### NATS
+
+Обёртки добавляют трассировку отправки и обработки сообщений, передают trace context
+и baggage, записывают ошибки в spans. Соединениями и подписками управляет приложение.
+
+#### Core NATS
+
+Отправка через существующее соединение `conn`:
+
+```go
+client := obs.NATSClient(conn)
+if err := client.PublishMsg(ctx, &nats.Msg{Subject: "jobs.created", Data: payload}); err != nil {
+	return err
+}
+```
+
+Обработка:
+
+```go
+_, err = conn.QueueSubscribe("jobs.created", "workers", obs.NATSHandler(workerCtx,
+	func(ctx context.Context, msg *nats.Msg) error {
+		return process(ctx, msg.Data)
+	},
+))
+if err != nil {
+	return err
+}
+```
+
+`PublishMsg` не ждёт подтверждения доставки. Для запроса с ответом используйте
+`client.RequestMsg(ctx, msg)`, а в обработчике отправьте ответ через
+`client.PublishMsg(ctx, reply)` с `reply.Subject = msg.Reply`.
+
+#### JetStream
+
+Здесь `js` получен через `jetstream.New(conn)`, а stream и `consumer` для
+`jobs.created` уже созданы.
+
+Отправка с ожиданием подтверждения брокера:
+
+```go
+publisher := obs.JetStreamPublisher(js)
+if _, err := publisher.PublishMsg(ctx, &nats.Msg{Subject: "jobs.created", Data: payload}); err != nil {
+	return err
+}
+```
+
+Обработка с явным ACK при успехе и NAK при ошибке:
+
+```go
+consume, err := consumer.Consume(obs.JetStreamHandler(workerCtx,
+	func(ctx context.Context, msg jetstream.Msg) error {
+		if err := process(ctx, msg.Data()); err != nil {
+			return errors.Join(err, msg.Nak())
+		}
+		return msg.Ack()
+	},
+))
+if err != nil {
+	return err
+}
+defer consume.Stop()
+```
+
+PubAck подтверждает приём сообщения брокером. Обработку подтверждает сам consumer
+вызовом `Ack()`.
+
+Оба обработчика продолжают входящий trace. Для нового trace со ссылкой на входящий
+передайте `observability.WithNATSNewTrace()` в `NATSHandler` или `JetStreamHandler`.
+`workerCtx` задаёт локальные deadline и отмену; через NATS они не передаются.
+
+Полный пример Core NATS request/reply см. в [example](example).
 
 ## Архитектура
 

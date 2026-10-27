@@ -9,7 +9,7 @@ CFG_TMPL ?= Makefile.env
 LOG_DEST ?= error.log
 ZO_ROOT_USER_EMAIL ?= root@example.com
 
-SOURCES = $(shell find . -maxdepth 1 -name '*.go')
+SOURCES = $(shell find . -maxdepth 1 -name '*.go') $(wildcard api/*.go)
 APP_VERSION ?= $(shell git describe --tags --always)
 TARGETOS ?= $(shell $(GO) env GOOS)
 TARGETARCH ?= $(shell $(GO) env GOARCH)
@@ -17,7 +17,7 @@ LDFLAGS ?= -s -w -extldflags '-static'
 
 -include $(CFG_TMPL)
 
-.PHONY: config build run prepare-log-file up down full-down logs clean
+.PHONY: config build run generate prepare-log-file up requests down full-down logs clean
 
 ## build example binary
 build: $(PRG_DEST) $(CFG_TMPL)
@@ -28,9 +28,15 @@ $(PRG_DEST): $(SOURCES) go.mod go.sum
 	  "$(LDFLAGS) -X main.version=$(APP_VERSION)" \
 	  .
 
-## regenerate config defaults template
-$(CFG_TMPL): $(SOURCES) go.mod go.sum Makefile
+## generate missing config defaults; refresh explicitly with make -B Makefile.env
+$(CFG_TMPL):
 	@GOWORK=$(GOWORK) $(GO) run . --config_gen=mk > $@ 2>/dev/null
+
+## regenerate protobuf sources; requires protoc and Go plugins in GOPATH/bin or PATH
+generate:
+	@PATH="$$($(GO) env GOPATH)/bin:$$PATH" protoc \
+	  --go_out=. --go_opt=paths=source_relative \
+	  --go-grpc_out=. --go-grpc_opt=paths=source_relative api/calculate.proto
 
 ## run example app with traces, metrics, runtime metrics and JSON logs
 run: prepare-log-file
@@ -69,7 +75,7 @@ config: $(CFG_TMPL) prepare-log-file
 	echo "OpenObserve login: $(ZO_ROOT_USER_EMAIL)"; \
 	echo "OpenObserve password: $$password"
 
-## start local telemetry stack
+## build and start the complete example; wait for OpenObserve
 up: prepare-log-file
 	@if [ -f $(CFG) ]; then \
 	  sed -n \
@@ -79,7 +85,17 @@ up: prepare-log-file
 	else \
 	  make config; \
 	fi
-	LOG_DEST=$(LOG_DEST) docker compose up -d
+	LOG_DEST=$(LOG_DEST) docker compose up --build --wait --wait-timeout 120
+	@LOG_DEST=$(LOG_DEST) docker compose run --rm --no-deps --entrypoint sh client -ec '\
+	  for attempt in $$(seq 1 30); do \
+	    if wget -q -T 3 -O /dev/null http://openobserve:5080/healthz; then exit 0; fi; \
+	    sleep 1; \
+	  done; \
+	  echo "OpenObserve is not ready" >&2; exit 1'
+
+## send the demonstration request with HTTP client spans
+requests:
+	@LOG_DEST=$(LOG_DEST) docker compose run --rm --no-deps client
 
 ## stop local telemetry stack
 down:
