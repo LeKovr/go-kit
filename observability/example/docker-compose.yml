@@ -25,8 +25,14 @@ services:
   worker:
     <<: *example
     command: ["--mode=nats-worker"]
+    environment:
+      <<: *example-environment
+      DB_DSN: postgres://example:example@postgres:5432/example?sslmode=disable
+      DB_TIMEOUT: "${DB_TIMEOUT:-3s}"
     depends_on:
       nats:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
       otel-collector:
         condition: service_started
@@ -63,6 +69,20 @@ services:
     depends_on:
       http-gateway:
         condition: service_started
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: example
+      POSTGRES_PASSWORD: example
+      POSTGRES_DB: example
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U example -d example"]
+      interval: 5s
+      timeout: 2s
+      retries: 5
 
   nats:
     image: nats:2.12.6-alpine

@@ -7,6 +7,8 @@ require (
 	github.com/LeKovr/go-kit/observability v0.0.0
 	github.com/LeKovr/go-kit/server v0.0.0
 	github.com/LeKovr/go-kit/slogger v0.0.0
+	github.com/exaring/otelpgx v0.13.0
+	github.com/jackc/pgx/v5 v5.9.2
 	github.com/nats-io/nats-server/v2 v2.12.6
 	github.com/nats-io/nats.go v1.50.0
 	go.opentelemetry.io/otel v1.44.0
@@ -21,7 +23,6 @@ require (
 	github.com/antithesishq/antithesis-sdk-go v0.7.0-default-no-op // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/exaring/otelpgx v0.13.0 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
@@ -30,7 +31,6 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
-	github.com/jackc/pgx/v5 v5.9.2 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jessevdk/go-flags v1.6.1 // indirect
 	github.com/klauspost/compress v1.18.6 // indirect
