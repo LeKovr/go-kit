@@ -122,7 +122,7 @@ services:
       - nats-exporter
 
   openobserve:
-    image: public.ecr.aws/zinclabs/openobserve:latest
+    image: public.ecr.aws/zinclabs/openobserve:v1.1.2
     env_file:
       - .env
     ports:
