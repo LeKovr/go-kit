@@ -21,6 +21,7 @@
 * Go runtime metrics
 * HTTP server/client instrumentation на базе `otelhttp`
 * gRPC client/server instrumentation на базе `otelgrpc`, включая streaming
+* PostgreSQL: трассировка операций pgx и метрики пула
 * Core NATS и JetStream: отправка и обработка сообщений с передачей контекста
 * `Meter` и `Tracer` для бизнес-метрик и прикладных span
 
@@ -63,6 +64,19 @@ client := &http.Client{
 }
 ```
 
+`HTTPTransport` поддерживает [опции `otelhttp`](https://pkg.go.dev/go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp#Option).
+Для трассировки DNS, подключения и TLS добавьте `HTTPClientTrace`:
+
+```go
+client.Transport = obs.HTTPTransport(http.DefaultTransport, obs.HTTPClientTrace())
+```
+
+`HTTPClientTrace` использует provider из `obs`. Настройки передаются через
+[опции `otelhttptrace`](https://pkg.go.dev/go.opentelemetry.io/contrib/instrumentation/net/http/httptrace/otelhttptrace#ClientTraceOption):
+
+- `WithoutHeaders` отключает запись исходящих заголовков в trace.
+- `WithoutSubSpans` заменяет дочерние spans событиями HTTP span.
+
 Полный HTTP-пример с OpenTelemetry Collector и OpenObserve см. в [example](example).
 
 ### gRPC
@@ -95,6 +109,49 @@ Handlers поддерживают unary и streaming RPC. Вызовам кли�
 Оба метода принимают [опции `otelgrpc`](https://pkg.go.dev/go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc#Option),
 например `WithFilter` для исключения RPC. Providers и propagator всегда берутся
 из `obs` и имеют приоритет над options.
+
+### PostgreSQL (pgx)
+
+```go
+poolCfg, err := pgxpool.ParseConfig(dsn)
+if err != nil {
+	return err
+}
+poolCfg.ConnConfig.Tracer = obs.PGXTracer()
+pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
+if err != nil {
+	return err
+}
+defer pool.Close()
+
+if err := obs.RecordPGXPoolStats(pool); err != nil {
+	return err
+}
+```
+
+Методы используют [`otelpgx`](https://github.com/exaring/otelpgx) с providers из `obs`.
+`RecordPGXPoolStats` принимает его опции. Например, чтобы различать несколько пулов
+к одной БД, при регистрации метрик можно задать каждому постоянное имя:
+
+```go
+if err := obs.RecordPGXPoolStats(pool,
+	otelpgx.WithStatsAttributes(attribute.String("db.client.connection.pool.name", "primary")),
+); err != nil {
+	return err
+}
+```
+
+Этот вызов заменяет регистрацию без опций выше. По умолчанию имя имеет вид
+`host:port/database`. `WithStatsAttributes` относится только к метрикам пула;
+`WithMinimumReadDBStatsInterval` задаёт минимальный интервал чтения статистики.
+
+Запросам передавайте `ctx` обработчика, чтобы сохранить связь traces. В фоновых
+задачах сначала создайте span через `obs.Tracer`: DB spans требуют записываемого родителя.
+Метрики работают и без него; атрибут `db.operation.name` позволяет различать `SELECT`, `INSERT` и другие SQL-операции.
+
+Метрики подключайте один раз на пул. При завершении приложения закройте пул до
+`obs.Shutdown`. SQL и параметры не записываются, но сообщения ошибок могут содержать
+данные запроса.
 
 ### NATS
 

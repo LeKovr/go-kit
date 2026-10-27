@@ -1,9 +1,12 @@
 package observability
 
 import (
+	"context"
 	"net/http"
+	"net/http/httptrace"
 	"strings"
 
+	"go.opentelemetry.io/contrib/instrumentation/net/http/httptrace/otelhttptrace"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
@@ -75,6 +78,18 @@ func (svc Service) HTTPTransport(base http.RoundTripper, opts ...otelhttp.Option
 	)
 
 	return otelhttp.NewTransport(base, options...)
+}
+
+// HTTPClientTrace returns optional HTTPTransport details for DNS, connections and TLS.
+// The Service tracer provider takes precedence over opts; globals are not used.
+func (svc Service) HTTPClientTrace(opts ...otelhttptrace.ClientTraceOption) otelhttp.Option {
+	options := make([]otelhttptrace.ClientTraceOption, 0, len(opts)+1)
+	options = append(options, opts...)
+	options = append(options, otelhttptrace.WithTracerProvider(svc.tracerProviderOrNoop()))
+
+	return otelhttp.WithClientTrace(func(ctx context.Context) *httptrace.ClientTrace {
+		return otelhttptrace.NewClientTrace(ctx, options...)
+	})
 }
 
 func defaultHTTPConfig() httpConfig {
