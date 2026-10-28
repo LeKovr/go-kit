@@ -54,6 +54,18 @@ srv := server.New(cfg.Server)
 srv.Use(obs.HTTPMiddleware())
 ```
 
+Можно выбрать эндпоинты, на которых нужно начинать новый trace:
+
+```go
+srv.Use(obs.HTTPMiddleware(
+	observability.WithPublicEndpointFn(func(r *http.Request) bool {
+		return r.URL.Path == "/public"
+	}),
+))
+```
+
+Для остальных запросов middleware продолжит входящий trace.
+
 Клиент:
 
 ```go
@@ -62,6 +74,9 @@ client := &http.Client{
 	Timeout:   cfg.Client.Timeout,
 }
 ```
+
+Создавайте исходящие запросы с `ctx` обработчика через `http.NewRequestWithContext`,
+чтобы `HTTPTransport` передавал текущий trace дальше.
 
 Полный HTTP-пример с OpenTelemetry Collector и OpenObserve см. в [example](example).
 
@@ -185,6 +200,7 @@ OpenTelemetry Options:
       --otel.service_instance_id=       Unique service instance id, e.g. pod name, pod UID, hostname, or container id [$OTEL_SERVICE_INSTANCE_ID]
       --otel.metric_interval=           OTLP metrics export interval (default: 10s) [$OTEL_METRIC_INTERVAL]
       --otel.shutdown_timeout=          OpenTelemetry shutdown timeout (default: 5s) [$OTEL_SHUTDOWN_TIMEOUT]
+      --otel.trace_sample_percent=      Percentage of new root traces to sample, from 0% to 100% (default: 100) [$OTEL_TRACE_SAMPLE_PERCENT]
       --otel.enable_traces              Enable traces export [$OTEL_ENABLE_TRACES]
       --otel.enable_metrics             Enable metrics export [$OTEL_ENABLE_METRICS]
       --otel.enable_go_runtime_metrics  Enable Go runtime metrics collection [$OTEL_ENABLE_GO_RUNTIME_METRICS]
