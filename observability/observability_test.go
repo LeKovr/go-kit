@@ -3,13 +3,16 @@ package observability
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
+	"time"
 
 	"go.opentelemetry.io/otel"
 	otelmetric "go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/trace"
+	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
 func TestServiceShutdownWithoutProviders(t *testing.T) {
@@ -22,17 +25,22 @@ func TestServiceShutdownWithoutProviders(t *testing.T) {
 func TestServiceShutdownRunsAllHooksAndJoinsErrors(t *testing.T) {
 	firstErr := errors.New("first shutdown")
 	secondErr := errors.New("second shutdown")
-	var calls []string
+	secondStarted := make(chan struct{})
 
 	svc := Service{
+		config: Config{ShutdownTimeout: time.Second},
 		shutdowns: []func(context.Context) error{
-			func(context.Context) error {
-				calls = append(calls, "first")
-				return firstErr
+			func(ctx context.Context) error {
+				select {
+				case <-secondStarted:
+					return firstErr
+				case <-ctx.Done():
+					return ctx.Err()
+				}
 			},
 			nil,
 			func(context.Context) error {
-				calls = append(calls, "second")
+				close(secondStarted)
 				return secondErr
 			},
 		},
@@ -45,8 +53,102 @@ func TestServiceShutdownRunsAllHooksAndJoinsErrors(t *testing.T) {
 	if !errors.Is(err, secondErr) {
 		t.Fatalf("shutdown error does not include second error: %v", err)
 	}
-	if len(calls) != 2 || calls[0] != "first" || calls[1] != "second" {
-		t.Fatalf("unexpected shutdown calls: %v", calls)
+}
+
+func TestTraceSampling(t *testing.T) {
+	zero, quarter, full := 0, 25, 100
+	for _, tt := range []struct {
+		name    string
+		percent *int
+		low     bool
+		high    bool
+	}{
+		{name: "nil", low: true, high: true},
+		{name: "zero", percent: &zero},
+		{name: "quarter", percent: &quarter, low: true},
+		{name: "full", percent: &full, low: true, high: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			sampler, err := newTraceSampler(Config{TraceSamplePercent: tt.percent})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, root := range []struct {
+				id   oteltrace.TraceID
+				want bool
+			}{
+				{oteltrace.TraceID{8: 0x3f, 9: 0xff, 10: 0xff, 11: 0xff, 12: 0xff, 13: 0xff, 14: 0xff, 15: 0xff}, tt.low},
+				{oteltrace.TraceID{8: 0x40}, tt.high},
+			} {
+				result := sampler.ShouldSample(trace.SamplingParameters{ParentContext: context.Background(), TraceID: root.id})
+				if got := result.Decision == trace.RecordAndSample; got != root.want {
+					t.Errorf("root %s sampled=%v, want %v", root.id, got, root.want)
+				}
+			}
+			for _, remote := range []bool{false, true} {
+				for _, flags := range []oteltrace.TraceFlags{0, oteltrace.FlagsSampled} {
+					parent := oteltrace.NewSpanContext(oteltrace.SpanContextConfig{
+						TraceID: oteltrace.TraceID{1}, SpanID: oteltrace.SpanID{2}, TraceFlags: flags, Remote: remote,
+					})
+					result := sampler.ShouldSample(trace.SamplingParameters{
+						ParentContext: oteltrace.ContextWithSpanContext(context.Background(), parent), TraceID: parent.TraceID(),
+					})
+					if got := result.Decision == trace.RecordAndSample; got != parent.IsSampled() {
+						t.Errorf("remote=%v flags=%v: sampled=%v", remote, flags, got)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestNewTraceSamplingIgnoresEnvironment(t *testing.T) {
+	zero, full := 0, 100
+	t.Setenv("OTEL_TRACES_SAMPLER_ARG", "0.25")
+	for _, percent := range []*int{nil, &zero, &full} {
+		want := percent == nil || *percent == 100
+		envSampler := "always_off"
+		if !want {
+			envSampler = "always_on"
+		}
+		t.Setenv("OTEL_TRACES_SAMPLER", envSampler)
+		svc, err := New(context.Background(), Config{
+			EnableTraces: true, TraceSamplePercent: percent, OTLPEndpoint: "http://127.0.0.1:4317",
+			ShutdownTimeout: time.Second,
+		}, "test-service", "test-version")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, span := svc.Tracer("test").Start(context.Background(), "root")
+		got := span.SpanContext().IsSampled()
+		// Keep the exporter queue empty: this test only checks sampling, not delivery.
+		if err := svc.Shutdown(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		span.End()
+		if got != want {
+			t.Errorf("percent=%v: sampled=%v, want %v", percent, got, want)
+		}
+	}
+}
+
+func TestNewValidatesTraceSamplePercentBeforeExporter(t *testing.T) {
+	for _, percent := range []int{-1, 101} {
+		_, err := New(context.Background(), Config{
+			EnableTraces: true, TraceSamplePercent: &percent, OTLPEndpoint: "not-a-url",
+		}, "test-service", "test-version")
+		if err == nil || !strings.Contains(err.Error(), "trace sample percent") {
+			t.Fatalf("percent=%d: expected sampling validation before endpoint validation, got %v", percent, err)
+		}
+	}
+	for _, percent := range []int{-1, 101} {
+		svc, err := New(context.Background(), Config{TraceSamplePercent: &percent}, "test-service", "test-version")
+		if err != nil {
+			t.Fatalf("disabled traces, percent=%d: %v", percent, err)
+		}
+		if err := svc.Shutdown(context.Background()); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

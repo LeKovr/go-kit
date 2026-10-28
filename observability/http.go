@@ -12,6 +12,7 @@ var defaultIgnoredPaths = []string{"/health", "/ready", "/metrics"}
 type httpConfig struct {
 	ignoredPaths      map[string]struct{}
 	spanNameFormatter func(string, *http.Request) string
+	publicEndpointFn  func(*http.Request) bool
 }
 
 // HTTPOption changes HTTP middleware behavior.
@@ -36,6 +37,15 @@ func WithSpanNameFormatter(formatter func(string, *http.Request) string) HTTPOpt
 	}
 }
 
+// WithPublicEndpointFn starts a new trace when fn returns true and links any
+// valid incoming remote span. The new trace follows this Service's sampling
+// policy. A nil function preserves the incoming parent.
+func WithPublicEndpointFn(fn func(*http.Request) bool) HTTPOption {
+	return func(cfg *httpConfig) {
+		cfg.publicEndpointFn = fn
+	}
+}
+
 // HTTPMiddleware returns a net/http middleware compatible with server.Handler.
 func (svc Service) HTTPMiddleware(opts ...HTTPOption) func(http.Handler) http.Handler {
 	cfg := defaultHTTPConfig()
@@ -46,6 +56,7 @@ func (svc Service) HTTPMiddleware(opts ...HTTPOption) func(http.Handler) http.Ha
 	otelOpts := []otelhttp.Option{
 		otelhttp.WithServerName(svc.serviceName),
 		otelhttp.WithSpanNameFormatter(cfg.spanNameFormatter),
+		otelhttp.WithPublicEndpointFn(cfg.publicEndpointFn),
 		otelhttp.WithFilter(func(r *http.Request) bool {
 			_, ignored := cfg.ignoredPaths[r.URL.Path]
 			return !ignored
