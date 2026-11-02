@@ -28,7 +28,7 @@ type NATSConfig struct {
 
 // DBConfig holds PostgreSQL connection and query settings for the demo.
 type DBConfig struct {
-	DSN     string        `default:"postgres://example:example@127.0.0.1:5432/example?sslmode=disable" description:"PostgreSQL connection string" env:"DSN" long:"dsn"`
+	DSN     string        `description:"PostgreSQL connection string" env:"DSN" long:"dsn"`
 	Timeout time.Duration `default:"3s" description:"PostgreSQL connection and query timeout" env:"TIMEOUT" long:"timeout"`
 }
 

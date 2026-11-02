@@ -6,7 +6,6 @@ PRG ?= example
 PRG_DEST ?= $(PRG)
 CFG ?= .env
 CFG_TMPL ?= Makefile.env
-LOG_DEST ?= error.log
 ZO_ROOT_USER_EMAIL ?= root@example.com
 
 SOURCES = $(shell find . -maxdepth 1 -name '*.go') $(wildcard api/*.go)
@@ -15,7 +14,31 @@ TARGETOS ?= $(shell $(GO) env GOOS)
 TARGETARCH ?= $(shell $(GO) env GOARCH)
 LDFLAGS ?= -s -w -extldflags '-static'
 
+ifeq ($(filter config,$(MAKECMDGOALS)),)
+-include $(CFG)
+endif
+
+#- PostgreSQL database (used in docker-compose.yml & for DSN)
+POSTGRES_DB       ?= $(PRG)
+
+#- PostgreSQL user (used in docker-compose.yml & for DSN)
+POSTGRES_USER     ?= $(PRG)
+
+ifeq ($(origin POSTGRES_PASSWORD),undefined)
+#- PostgreSQL password (used in docker-compose.yml & for DSN)
+POSTGRES_PASSWORD := $(shell LC_ALL=C tr -dc A-Za-z0-9 < /dev/urandom | head -c32)
+endif
+
+# - Service config var, registered by Makefile.env
+DB_DSN ?= postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(POSTGRES_DB)?sslmode=disable
+
 -include $(CFG_TMPL)
+LOG_DEST := $(or $(LOG_DEST),error.log)
+
+export POSTGRES_USER
+export POSTGRES_PASSWORD
+export POSTGRES_DB
+export DB_DSN
 
 .PHONY: config build run generate prepare-log-file up requests down full-down logs clean
 
@@ -58,13 +81,17 @@ prepare-log-file:
 	  test -f "$(LOG_DEST)" || { echo "Log file was not created: $(LOG_DEST)" >&2; exit 1; }; \
 	fi
 
-## generate local OpenObserve credentials
+## generate local PostgreSQL settings and OpenObserve credentials
 config: $(CFG_TMPL) prepare-log-file
 	@# LC_ALL=C makes tr process /dev/urandom bytes safely on macOS UTF-8 locales.
 	@password=Aa1!$$(LC_ALL=C tr -dc A-Za-z0-9 < /dev/urandom 2>/dev/null | head -c28); \
 	auth_digest=$$(printf "%s:%s" "$(ZO_ROOT_USER_EMAIL)" "$$password" | base64 | tr -d '\n'); \
-	sed -E 's/[[:space:]]*\?=[[:space:]]*/=/' < $(CFG_TMPL) > $(CFG); \
+	awk '/^DB_DSN[[:space:]]*\?=/ { print "DB_DSN=" ENVIRON["DB_DSN"]; next } \
+	  { sub(/[[:space:]]*\?=[[:space:]]*/, "="); print }' < $(CFG_TMPL) > $(CFG); \
 	{ \
+	  printf 'POSTGRES_USER=%s\n' "$$POSTGRES_USER"; \
+	  printf 'POSTGRES_PASSWORD=%s\n' "$$POSTGRES_PASSWORD"; \
+	  printf 'POSTGRES_DB=%s\n' "$$POSTGRES_DB"; \
 	  echo; \
 	  echo "# OpenObserve local credentials"; \
 	  echo "ZO_ROOT_USER_EMAIL=$(ZO_ROOT_USER_EMAIL)"; \
