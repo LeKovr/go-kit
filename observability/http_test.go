@@ -283,6 +283,87 @@ func TestHTTPMiddlewareUsesServicePropagator(t *testing.T) {
 	}
 }
 
+func TestHTTPMiddlewarePublicEndpointSampling(t *testing.T) {
+	sampledParent := trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID: trace.TraceID{1}, SpanID: trace.SpanID{2}, TraceFlags: trace.FlagsSampled, Remote: true,
+	})
+	unsampledParent := sampledParent.WithTraceFlags(0)
+	publicEndpoint := WithPublicEndpointFn(func(r *http.Request) bool { return r.URL.Path == "/public" })
+	for _, tt := range []struct {
+		name        string
+		ratio       float64
+		parent      trace.SpanContext
+		option      HTTPOption
+		path        string
+		newRoot     bool
+		wantSampled bool
+	}{
+		{"public zero sampled parent", 0, sampledParent, publicEndpoint, "/public", true, false},
+		{"public zero unsampled parent", 0, unsampledParent, publicEndpoint, "/public", true, false},
+		{"public full sampled parent", 1, sampledParent, publicEndpoint, "/public", true, true},
+		{"public full unsampled parent", 1, unsampledParent, publicEndpoint, "/public", true, true},
+		{"public without parent", 1, trace.SpanContext{}, publicEndpoint, "/public", true, true},
+		{"default sampled parent", 0, sampledParent, nil, "/public", false, true},
+		{"default unsampled parent", 1, unsampledParent, nil, "/public", false, false},
+		{"private sampled parent", 0, sampledParent, publicEndpoint, "/private", false, true},
+		{"private unsampled parent", 1, unsampledParent, publicEndpoint, "/private", false, false},
+		{"nil predicate", 0, sampledParent, WithPublicEndpointFn(nil), "/public", false, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			exporter := tracetest.NewInMemoryExporter()
+			provider := sdktrace.NewTracerProvider(
+				sdktrace.WithSyncer(exporter),
+				sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.TraceIDRatioBased(tt.ratio))),
+			)
+			t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+			svc := Service{tracerProvider: provider}
+			var options []HTTPOption
+			if tt.option != nil {
+				options = append(options, tt.option)
+			}
+			var got trace.SpanContext
+			handler := svc.HTTPMiddleware(options...)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				got = trace.SpanContextFromContext(r.Context())
+				w.WriteHeader(http.StatusNoContent)
+			}))
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			propagation.TraceContext{}.Inject(trace.ContextWithRemoteSpanContext(req.Context(), tt.parent), propagation.HeaderCarrier(req.Header))
+			handler.ServeHTTP(httptest.NewRecorder(), req)
+			if !got.IsValid() || got.IsSampled() != tt.wantSampled {
+				t.Fatalf("handler span = %v, want sampled=%v", got, tt.wantSampled)
+			}
+			if sameTrace := got.TraceID() == tt.parent.TraceID(); sameTrace == tt.newRoot {
+				t.Fatalf("handler trace = %s, parent = %s, want new root=%v", got.TraceID(), tt.parent.TraceID(), tt.newRoot)
+			}
+			spans := exporter.GetSpans()
+			if !tt.wantSampled {
+				if len(spans) != 0 {
+					t.Fatalf("unsampled request exported %d spans", len(spans))
+				}
+				return
+			}
+			if len(spans) != 1 {
+				t.Fatalf("expected one span, got %d", len(spans))
+			}
+			span := spans[0]
+			if tt.newRoot {
+				if span.Parent.IsValid() {
+					t.Fatal("public endpoint span has a parent")
+				}
+			} else if !span.Parent.Equal(tt.parent) {
+				t.Fatalf("parent = %v, want %v", span.Parent, tt.parent)
+			}
+			if tt.newRoot && tt.parent.IsValid() {
+				if len(span.Links) != 1 || !span.Links[0].SpanContext.Equal(tt.parent) {
+					t.Fatalf("links = %v, want incoming remote span %v", span.Links, tt.parent)
+				}
+			} else if len(span.Links) != 0 {
+				t.Fatalf("unexpected links: %v", span.Links)
+			}
+		})
+	}
+}
+
 func TestHTTPMiddlewareWithMetricsDisabledDoesNotUseGlobalProvider(t *testing.T) {
 	reader := sdkmetric.NewManualReader()
 	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
