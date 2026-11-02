@@ -19,6 +19,7 @@ type Config struct {
 	Server        server.Config        `group:"HTTP Options" namespace:"http" env-namespace:"HTTP"`
 	GRPC          GRPCConfig           `group:"gRPC Options" namespace:"grpc" env-namespace:"GRPC"`
 	NATS          NATSConfig           `group:"NATS Options" namespace:"nats" env-namespace:"NATS"`
+	DB            DBConfig             `group:"Database Options" namespace:"db" env-namespace:"DB"`
 	Client        ClientConfig         `group:"Client Options" namespace:"client" env-namespace:"CLIENT"`
 	Logger        slogger.Config       `group:"Logging Options" namespace:"log" env-namespace:"LOG"`
 	Observability observability.Config `group:"OpenTelemetry Options" namespace:"otel" env-namespace:"OTEL"`

@@ -43,7 +43,7 @@ func calculatorHTTPHandler(client api.CalculatorClient, timeout time.Duration, l
 		ctx, cancel := context.WithTimeout(r.Context(), timeout)
 		defer cancel()
 		logger.InfoContext(ctx, "HTTP calculation requested")
-		reply, err := client.Calculate(ctx, &api.CalculateRequest{})
+		_, err := client.Calculate(ctx, &api.CalculateRequest{})
 		if err != nil {
 			logger.ErrorContext(ctx, "gRPC calculation failed", "err", err)
 			code := http.StatusBadGateway
@@ -56,6 +56,6 @@ func calculatorHTTPHandler(client api.CalculatorClient, timeout time.Duration, l
 			http.Error(w, http.StatusText(code), code)
 			return
 		}
-		_, _ = w.Write([]byte(reply.GetResult()))
+		_, _ = w.Write([]byte("ok"))
 	}
 }

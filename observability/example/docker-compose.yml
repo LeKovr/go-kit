@@ -25,8 +25,14 @@ services:
   worker:
     <<: *example
     command: ["--mode=nats-worker"]
+    environment:
+      <<: *example-environment
+      DB_DSN: "${DB_DSN:-}"
+      DB_TIMEOUT: "${DB_TIMEOUT:-3s}"
     depends_on:
       nats:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
       otel-collector:
         condition: service_started
@@ -64,6 +70,20 @@ services:
       http-gateway:
         condition: service_started
 
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:?Set POSTGRES_USER in .env; see README}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env; see README}"
+      POSTGRES_DB: "${POSTGRES_DB:?Set POSTGRES_DB in .env; see README}"
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+
   nats:
     image: nats:2.12.6-alpine
     command: ["-m", "8222"]
@@ -88,8 +108,8 @@ services:
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.104.0
     command: ["--config=/etc/otel-collector.yaml"]
-    env_file:
-      - .env
+    environment:
+      OPENOBSERVE_AUTH_DIGEST: "${OPENOBSERVE_AUTH_DIGEST:?Run make config to create .env}"
     volumes:
       - ./otel-collector.yaml:/etc/otel-collector.yaml:ro
       - ./${LOG_DEST:-error.log}:/var/log/observability-example/error.log:ro
@@ -102,9 +122,10 @@ services:
       - nats-exporter
 
   openobserve:
-    image: public.ecr.aws/zinclabs/openobserve:latest
-    env_file:
-      - .env
+    image: public.ecr.aws/zinclabs/openobserve:v1.1.2
+    environment:
+      ZO_ROOT_USER_EMAIL: "${ZO_ROOT_USER_EMAIL:?Run make config to create .env}"
+      ZO_ROOT_USER_PASSWORD: "${ZO_ROOT_USER_PASSWORD:?Run make config to create .env}"
     ports:
       - "127.0.0.1:5080:5080"
     volumes:

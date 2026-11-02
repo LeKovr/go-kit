@@ -22,8 +22,10 @@ func runClient(ctx context.Context, cfg ClientConfig, obs *observability.Service
 	logger := slogger.WithScope(slog.Default(), application+"/http-client")
 
 	client := &http.Client{
-		Transport: obs.HTTPTransport(http.DefaultTransport),
-		Timeout:   cfg.Timeout,
+		Transport: obs.HTTPTransport(http.DefaultTransport,
+			obs.HTTPClientTrace(),
+		),
+		Timeout: cfg.Timeout,
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cfg.URL, nil)

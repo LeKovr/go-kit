@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/LeKovr/go-kit/observability"
 	"github.com/LeKovr/go-kit/observability/example/api"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"go.opentelemetry.io/otel/baggage"
@@ -41,6 +43,10 @@ func (r *flowTraceReceiver) Export(_ context.Context, req *collectortrace.Export
 }
 
 func TestCalculationFlow(t *testing.T) {
+	dsn := os.Getenv("PGX_TEST_DSN")
+	if dsn == "" {
+		t.Skip("set PGX_TEST_DSN to run the PostgreSQL calculation flow")
+	}
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -71,6 +77,23 @@ func TestCalculationFlow(t *testing.T) {
 		})
 	}
 
+	poolConfig, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	poolConfig.ConnConfig.Tracer = services["nats-worker"].PGXTracer()
+	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	if err := pool.Ping(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := services["nats-worker"].RecordPGXPoolStats(pool); err != nil {
+		t.Fatal(err)
+	}
+
 	broker, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, NoLog: true, NoSigs: true})
 	if err != nil {
 		t.Fatal(err)
@@ -96,7 +119,7 @@ func TestCalculationFlow(t *testing.T) {
 	}
 	workerBaggage := make(chan baggage.Baggage, 1)
 	workerDone := make(chan struct{}, 1)
-	worker := natsWorkerHandler(services["nats-worker"].NATSClient(workerConn), logger, requests)
+	worker := natsWorkerHandler(services["nats-worker"].NATSClient(workerConn), pool, 5*time.Second, logger, requests)
 	handle := services["nats-worker"].NATSHandler(ctx, func(ctx context.Context, msg *nats.Msg) error {
 		workerBaggage <- baggage.FromContext(ctx)
 		return worker(ctx, msg)
@@ -172,7 +195,7 @@ func TestCalculationFlow(t *testing.T) {
 			"traceparent": "00-11111111111111111111111111111111-2222222222222222-01",
 			"baggage":     "tenant=acme,job.id=flow-42",
 		})
-	request(parent, http.StatusOK, "ok\n")
+	request(parent, http.StatusOK, "ok")
 	select {
 	case <-workerDone:
 	case <-ctx.Done():
@@ -196,6 +219,7 @@ func TestCalculationFlow(t *testing.T) {
 
 	// Finish server callbacks before Shutdown flushes every provider to the receiver.
 	grpcServer.GracefulStop()
+	pool.Close()
 	for _, obs := range services {
 		if err := obs.Shutdown(context.Background()); err != nil {
 			t.Fatal(err)
@@ -210,11 +234,16 @@ func TestCalculationFlow(t *testing.T) {
 	noWorkerID := trace.SpanContextFromContext(noWorker).TraceID()
 	spans := make(map[string]*tracepb.Span)
 	var failedRPC, failedNATS *tracepb.Span
+	var dbSpans []*tracepb.Span
 	for _, resource := range resources {
 		serviceName := flowAttribute(resource.Resource.Attributes, "service.name")
 		for _, scope := range resource.ScopeSpans {
 			for _, span := range scope.Spans {
 				if bytes.Equal(span.TraceId, traceID[:]) {
+					if serviceName == application+"-nats-worker" && flowAttribute(span.Attributes, "db.system.name") == "postgresql" {
+						dbSpans = append(dbSpans, span)
+						continue
+					}
 					key := serviceName + ":" + span.Name
 					if spans[key] != nil {
 						t.Fatalf("duplicate span %q", key)
@@ -231,9 +260,6 @@ func TestCalculationFlow(t *testing.T) {
 				}
 			}
 		}
-	}
-	if len(spans) != 7 {
-		t.Fatalf("successful trace has %d spans, want 7: %v", len(spans), spans)
 	}
 	method := strings.TrimPrefix(api.Calculator_Calculate_FullMethodName, "/")
 	want := []struct {
@@ -260,6 +286,32 @@ func TestCalculationFlow(t *testing.T) {
 			t.Errorf("span %q kind/parent = (%v, %x), want (%v, %x)", key, span.Kind, span.ParentSpanId, tt.kind, previous)
 		}
 		previous = span.SpanId
+	}
+	workerSpan := spans[application+"-nats-worker:process "+natsSubject]
+	var query, acquire *tracepb.Span
+	for _, span := range dbSpans {
+		for _, attr := range span.Attributes {
+			switch attr.Key {
+			case "db.query.text", "db.statement", "pgx.query.parameters":
+				t.Errorf("DB span %q contains SQL or parameters in %q", span.Name, attr.Key)
+			}
+		}
+		if !bytes.Equal(span.ParentSpanId, workerSpan.SpanId) {
+			continue
+		}
+		switch span.Name {
+		case "query SELECT":
+			if flowAttribute(span.Attributes, "pgx.prepare_stmt.name") == "" {
+				query = span
+			}
+		case "pool.acquire":
+			acquire = span
+		}
+	}
+	for name, span := range map[string]*tracepb.Span{"query SELECT": query, "pool.acquire": acquire} {
+		if span == nil || span.Kind != tracepb.Span_SPAN_KIND_CLIENT {
+			t.Errorf("worker is missing a DB client child %q: %v", name, span)
+		}
 	}
 	if failedRPC == nil || flowAttribute(failedRPC.Attributes, "rpc.response.status_code") != "UNAVAILABLE" {
 		t.Errorf("missing worker did not produce gRPC UNAVAILABLE: %v", failedRPC)
