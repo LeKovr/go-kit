@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"sync"
 	"time"
 
 	otelruntime "go.opentelemetry.io/contrib/instrumentation/runtime"
@@ -25,11 +26,12 @@ import (
 
 // Config holds OpenTelemetry bootstrap options.
 type Config struct {
-	OTLPEndpoint string `default:"http://localhost:4317" long:"exporter_otlp_endpoint" description:"OTLP gRPC endpoint URL" env:"EXPORTER_OTLP_ENDPOINT"`
-	InstanceID   string `long:"service_instance_id" description:"Unique service instance id, e.g. pod name, pod UID, hostname, or container id" env:"SERVICE_INSTANCE_ID"`
+	OTLPEndpoint string `default:"http://localhost:4317" description:"OTLP gRPC endpoint URL" long:"exporter_otlp_endpoint" env:"EXPORTER_OTLP_ENDPOINT"`
+	InstanceID   string `description:"Unique service instance id, e.g. pod name, pod UID, hostname, or container id" long:"service_instance_id" env:"SERVICE_INSTANCE_ID"`
 
-	MetricInterval  time.Duration `default:"10s" description:"OTLP metrics export interval" long:"metric_interval" env:"METRIC_INTERVAL"`
-	ShutdownTimeout time.Duration `default:"5s" description:"OpenTelemetry shutdown timeout" long:"shutdown_timeout" env:"SHUTDOWN_TIMEOUT"`
+	MetricInterval     time.Duration `default:"10s" description:"OTLP metrics export interval" long:"metric_interval" env:"METRIC_INTERVAL"`
+	ShutdownTimeout    time.Duration `default:"5s"  description:"OpenTelemetry shutdown timeout" long:"shutdown_timeout" env:"SHUTDOWN_TIMEOUT"`
+	TraceSamplePercent *int          `default:"100" description:"Percentage of new root traces to sample, from 0% to 100%" long:"trace_sample_percent" env:"TRACE_SAMPLE_PERCENT"`
 
 	EnableTraces           bool `description:"Enable traces export" long:"enable_traces" env:"ENABLE_TRACES"`
 	EnableMetrics          bool `description:"Enable metrics export" long:"enable_metrics" env:"ENABLE_METRICS"`
@@ -118,6 +120,11 @@ func newMeterProvider(ctx context.Context, cfg Config, r *resource.Resource) (*s
 }
 
 func newTracerProvider(ctx context.Context, cfg Config, r *resource.Resource) (*sdktrace.TracerProvider, error) {
+	sampler, err := newTraceSampler(cfg)
+	if err != nil {
+		return nil, err
+	}
+
 	traceExporter, err := newTraceOTLPExporter(ctx, cfg)
 	if err != nil {
 		return nil, err
@@ -125,9 +132,21 @@ func newTracerProvider(ctx context.Context, cfg Config, r *resource.Resource) (*
 
 	return sdktrace.NewTracerProvider(
 		sdktrace.WithResource(r),
-		sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.AlwaysSample())),
+		sdktrace.WithSampler(sampler),
 		sdktrace.WithBatcher(traceExporter),
 	), nil
+}
+
+func newTraceSampler(cfg Config) (sdktrace.Sampler, error) {
+	percent := 100
+	if cfg.TraceSamplePercent != nil {
+		percent = *cfg.TraceSamplePercent
+	}
+	if percent < 0 || percent > 100 {
+		return nil, fmt.Errorf("trace sample percent must be between 0 and 100: %d", percent)
+	}
+
+	return sdktrace.ParentBased(sdktrace.TraceIDRatioBased(float64(percent) / 100)), nil
 }
 
 // InstallGlobal configures this service as the process-wide OpenTelemetry
@@ -161,18 +180,20 @@ func (svc Service) Shutdown(ctx context.Context) error {
 }
 
 func shutdownAll(ctx context.Context, funcs ...func(context.Context) error) error {
-	var errs []error
+	errs := make([]error, len(funcs))
+	var wg sync.WaitGroup
 
-	for _, fn := range funcs {
+	for i, fn := range funcs {
 		if fn == nil {
 			continue
 		}
 
-		if err := fn(ctx); err != nil {
-			errs = append(errs, err)
-		}
+		wg.Go(func() {
+			errs[i] = fn(ctx)
+		})
 	}
 
+	wg.Wait()
 	return errors.Join(errs...)
 }
 
