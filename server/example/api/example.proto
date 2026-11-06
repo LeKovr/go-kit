@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package example.v1;
+
+option go_package = "github.com/LeKovr/go-kit/server/example/api";
+
+service ExampleService {
+  rpc Health(HealthRequest) returns (HealthResponse);
+}
+
+message HealthRequest {}
+
+message HealthResponse {
+  string status = 1;
+}

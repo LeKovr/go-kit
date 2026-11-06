@@ -1,11 +1,3 @@
-github.com/LeKovr/go-kit/config v0.6.1 h1:23eHIOUrU4DwIzqxOdQZtevE93970dGaznfqyxwjgyQ=
-github.com/LeKovr/go-kit/config v0.6.1/go.mod h1:9n/EXjPdsnMXFEQeAEzHYOluaUS0LZ2EEOWjoW+AUFc=
-github.com/LeKovr/go-kit/server v0.16.2 h1:tyXeR//2CSQ2czwFHYKb0OZ6A6E7pe5nX54UoK2eG9A=
-github.com/LeKovr/go-kit/server v0.16.2/go.mod h1:YM90UnJBEN47wARr3/LHJoDg3+cq0NVgPWdbWbr2zNM=
-github.com/LeKovr/go-kit/slogger v0.15.2 h1:42CZhMaVhClrFEh17Z2lZSL0RjRZqciHcYa7K3A3d+I=
-github.com/LeKovr/go-kit/slogger v0.15.2/go.mod h1:cR9A/CNyeJWxSPE5+Qj0JCFPv0dqlvWhMlBd+D5LAKA=
-github.com/LeKovr/go-kit/ver v0.10.1 h1:jpPjFf2ppHneZTQmYY6uz47w8I8cKcC2/2JhxzSgqpA=
-github.com/LeKovr/go-kit/ver v0.10.1/go.mod h1:Owa7g1MBcfNu+pyBomynU5PpMbHD/gyzNYSYYApQXZQ=
 github.com/alecthomas/assert v1.0.0 h1:3XmGh/PSuLzDbK3W2gUbRXwgW5lqPkuqvRgeQ30FI5o=
 github.com/alecthomas/assert v1.0.0/go.mod h1:va/d2JC+M7F6s+80kl/R3G7FUiW6JzUO+hPhLyJ36ZY=
 github.com/alecthomas/assert/v2 v2.10.0 h1:jjRCHsj6hBJhkmhznrCzoNpbA3zqy0fYiUcYZP/GkPY=
@@ -20,12 +12,6 @@ github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc h1:U9qPSI2PIWSS1
 github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/felixge/httpsnoop v1.1.0 h1:3YtUj32ZZkqZtt3sZZsClsymw/QDuVfpNhoA31zeORc=
 github.com/felixge/httpsnoop v1.1.0/go.mod h1:Zqxgdd+1Rkcz8euOqdr7lqgCRJztwr5hp9vDSi5UZCE=
-github.com/go-http-utils/etag v0.0.0-20161124023236-513ea8f21eb1 h1:zga7zaRE8HCbWjcXMDlfvmQtH0/kMVLo7cQ48dy6kWg=
-github.com/go-http-utils/etag v0.0.0-20161124023236-513ea8f21eb1/go.mod h1:PumS+5d59wmAGsZo6IfRpVNaJUq+6xjC4Utt/k8GO6Q=
-github.com/go-http-utils/fresh v0.0.0-20161124030543-7231e26a4b27 h1:O6yi4xa9b2DMosGsXzlMe2E9qXgXCVkRLCoRX+5amxI=
-github.com/go-http-utils/fresh v0.0.0-20161124030543-7231e26a4b27/go.mod h1:AYvN8omj7nKLmbcXS2dyABYU6JB1Lz1bHmkkq1kf4I4=
-github.com/go-http-utils/headers v0.0.0-20181008091004-fed159eddc2a h1:v6zMvHuY9yue4+QkG/HQ/W67wvtQmWJ4SDo9aK/GIno=
-github.com/go-http-utils/headers v0.0.0-20181008091004-fed159eddc2a/go.mod h1:I79BieaU4fxrw4LMXby6q5OS9XnoR9UIKLOzDFjUmuw=
 github.com/go-logr/logr v1.4.3 h1:CjnDlHq8ikf6E492q6eKboGOC0T8CDaOvkHCIg8idEI=
 github.com/go-logr/logr v1.4.3/go.mod h1:9T104GzyrTigFIr8wt5mBrctHMim0Nb2HLGrmQ40KvY=
 github.com/go-logr/stdr v1.2.2 h1:hSWxHoqTgW2S2qGc0LTAI563KZ5YKYRhT3MFKZMbjag=

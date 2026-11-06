@@ -24,3 +24,11 @@ make logs       # логи Collector
 make down       # остановить стенд
 make full-down  # остановить и удалить локальные данные OpenObserve
 ```
+
+`GRPC_LISTEN` / `--grpc.listen` (default `:9090`) задаёт адрес gRPC-сервера,
+`GRPC_ADDRESS` / `--grpc.address` (default `127.0.0.1:9090`) задаёт адрес исходящего RPC.
+`GRPC_GRACE` / `--grpc.grace` и `NATS_GRACE` / `--nats.grace` задают время ожидания
+завершения запросов (default `10s`). Ноль означает немедленную остановку.
+Обработчики, игнорирующие отмену контекста, могут задержать завершение.
+
+Пример совместного запуска HTTP и gRPC: [server/example](../../server/example).

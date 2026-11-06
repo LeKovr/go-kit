@@ -49,7 +49,7 @@ func WithPublicEndpointFn(fn func(*http.Request) bool) HTTPOption {
 	}
 }
 
-// HTTPMiddleware returns a net/http middleware compatible with server.Handler.
+// HTTPMiddleware returns a standard net/http middleware.
 func (svc Service) HTTPMiddleware(opts ...HTTPOption) func(http.Handler) http.Handler {
 	cfg := defaultHTTPConfig()
 	for _, opt := range opts {

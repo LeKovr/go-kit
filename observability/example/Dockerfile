@@ -3,6 +3,8 @@ FROM golang:1.25.12-alpine3.23 AS build
 WORKDIR /src
 COPY config/*.go config/go.mod config/go.sum ./config/
 COPY server/*.go server/go.mod server/go.sum ./server/
+COPY server/http/*.go server/http/go.mod server/http/go.sum ./server/http/
+COPY server/grpc/*.go server/grpc/go.mod server/grpc/go.sum ./server/grpc/
 COPY slogger/*.go slogger/go.mod slogger/go.sum ./slogger/
 COPY observability/*.go observability/go.mod observability/go.sum ./observability/
 COPY observability/example/*.go observability/example/go.mod observability/example/go.sum ./observability/example/
