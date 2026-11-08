@@ -6,8 +6,6 @@ require (
 	github.com/LeKovr/go-kit/config v0.0.0
 	github.com/LeKovr/go-kit/observability v0.0.0
 	github.com/LeKovr/go-kit/server v0.0.0
-	github.com/LeKovr/go-kit/server/grpc v0.0.0
-	github.com/LeKovr/go-kit/server/http v0.0.0
 	github.com/LeKovr/go-kit/slogger v0.0.0
 	github.com/exaring/otelpgx v0.13.0
 	github.com/jackc/pgx/v5 v5.9.2
@@ -22,6 +20,7 @@ require (
 )
 
 require (
+	github.com/LeKovr/go-kit/server/http v0.0.0 // indirect
 	github.com/antithesishq/antithesis-sdk-go v0.7.0-default-no-op // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -69,8 +68,6 @@ replace github.com/LeKovr/go-kit/observability => ..
 
 replace github.com/LeKovr/go-kit/server => ../../server
 
-replace github.com/LeKovr/go-kit/slogger => ../../slogger
-
 replace github.com/LeKovr/go-kit/server/http => ../../server/http
 
-replace github.com/LeKovr/go-kit/server/grpc => ../../server/grpc
+replace github.com/LeKovr/go-kit/slogger => ../../slogger

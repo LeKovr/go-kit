@@ -4,11 +4,12 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net"
 	"time"
 
 	"github.com/LeKovr/go-kit/observability"
 	"github.com/LeKovr/go-kit/observability/example/api"
-	grpcserver "github.com/LeKovr/go-kit/server/grpc"
+	"github.com/LeKovr/go-kit/server"
 	"github.com/LeKovr/go-kit/slogger"
 	"github.com/nats-io/nats.go"
 	"google.golang.org/grpc"
@@ -18,8 +19,7 @@ import (
 
 // GRPCConfig holds gRPC connection and request settings for the demo.
 type GRPCConfig struct {
-	grpcserver.Config
-	Address string        `default:"127.0.0.1:9090" description:"gRPC destination address" env:"ADDRESS" long:"address"`
+	Address string        `default:"127.0.0.1:9090" description:"gRPC server address" env:"ADDRESS" long:"address"`
 	Timeout time.Duration `default:"3s" description:"gRPC calculation timeout" env:"TIMEOUT" long:"timeout"`
 }
 
@@ -63,12 +63,39 @@ func runGRPCServer(ctx context.Context, cfg Config, obs *observability.Service) 
 	}
 	defer conn.Close()
 
-	srv := grpcserver.New(cfg.GRPC.Config, grpc.StatsHandler(obs.GRPCServerHandler()))
-	api.RegisterCalculatorServer(srv.Server(), &calculatorServer{
+	listener, err := net.Listen("tcp", cfg.GRPC.Address)
+	if err != nil {
+		return err
+	}
+	defer listener.Close()
+
+	grpcServer := grpc.NewServer(grpc.StatsHandler(obs.GRPCServerHandler()))
+	defer grpcServer.Stop()
+	api.RegisterCalculatorServer(grpcServer, &calculatorServer{
 		client:  obs.NATSClient(conn),
 		timeout: cfg.NATS.Timeout,
 		logger:  logger,
 	})
 
-	return srv.Run(ctx)
+	logger.Info("gRPC server ready", "address", listener.Addr())
+	return server.New(cfg.Server).WithShutdown(func(ctx context.Context) error {
+		stopped := make(chan struct{})
+		go func() {
+			grpcServer.GracefulStop()
+			close(stopped)
+		}()
+		select {
+		case <-stopped:
+			return nil
+		case <-ctx.Done():
+			grpcServer.Stop()
+			return ctx.Err()
+		}
+	}).RunWorkers(ctx, func(context.Context) error {
+		err := grpcServer.Serve(listener)
+		if errors.Is(err, grpc.ErrServerStopped) {
+			return nil
+		}
+		return err
+	})
 }

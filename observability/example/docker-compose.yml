@@ -29,7 +29,6 @@ services:
       <<: *example-environment
       DB_DSN: "${DB_DSN:-}"
       DB_TIMEOUT: "${DB_TIMEOUT:-3s}"
-      NATS_GRACE: "${NATS_GRACE:-10s}"
     depends_on:
       nats:
         condition: service_healthy
@@ -43,8 +42,7 @@ services:
     command: ["--mode=grpc-server"]
     environment:
       <<: *example-environment
-      GRPC_LISTEN: :9090
-      GRPC_GRACE: "${GRPC_GRACE:-10s}"
+      GRPC_ADDRESS: :9090
     depends_on:
       worker:
         condition: service_started

@@ -51,9 +51,7 @@ defer restore()
 Сервер:
 
 ```go
-import httpserver "github.com/LeKovr/go-kit/server/http"
-
-srv := httpserver.New(cfg.Server)
+srv := server.New(cfg.Server)
 srv.Use(obs.HTTPMiddleware())
 ```
 

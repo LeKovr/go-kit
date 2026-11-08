@@ -3,14 +3,12 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"strconv"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/LeKovr/go-kit/observability"
+	"github.com/LeKovr/go-kit/server"
 	"github.com/LeKovr/go-kit/slogger"
 	"github.com/exaring/otelpgx"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -24,9 +22,8 @@ const natsSubject = "demo.calculate"
 
 // NATSConfig holds connection and request settings for the demo.
 type NATSConfig struct {
-	GracePeriod time.Duration `default:"10s" description:"NATS stop grace period" env:"GRACE" long:"grace"`
-	URL         string        `default:"nats://127.0.0.1:4222" description:"NATS server URL"                  env:"URL"     long:"url"`
-	Timeout     time.Duration `default:"3s"                    description:"NATS connection and request timeout" env:"TIMEOUT" long:"timeout"`
+	URL     string        `default:"nats://127.0.0.1:4222" description:"NATS server URL"                  env:"URL"     long:"url"`
+	Timeout time.Duration `default:"3s"                    description:"NATS connection and request timeout" env:"TIMEOUT" long:"timeout"`
 }
 
 // DBConfig holds PostgreSQL connection and query settings for the demo.
@@ -36,12 +33,6 @@ type DBConfig struct {
 }
 
 func runNATSWorker(ctx context.Context, cfg Config, obs *observability.Service) error {
-	if cfg.NATS.GracePeriod < 0 {
-		return errors.New("NATS grace period must not be negative")
-	}
-	if ctx.Err() != nil {
-		return nil
-	}
 	logger := slogger.WithScope(slog.Default(), application+"/nats-worker")
 	requests, err := obs.Meter(application+"/nats-worker").Int64Counter("demo.custom.requests",
 		metric.WithDescription("Number of custom demo handler calls."),
@@ -73,101 +64,52 @@ func runNATSWorker(ctx context.Context, cfg Config, obs *observability.Service) 
 		return err
 	}
 
-	return runNATSSubscription(ctx, cfg.NATS, func(callbackCtx context.Context, conn *nats.Conn) nats.MsgHandler {
-		return obs.NATSHandler(callbackCtx, natsWorkerHandler(obs.NATSClient(conn), pool, cfg.DB.Timeout, logger, requests))
-	})
-}
-
-// runNATSSubscription owns callbacks until they finish, before the caller closes its pool.
-func runNATSSubscription(ctx context.Context, cfg NATSConfig, handler func(context.Context, *nats.Conn) nats.MsgHandler) error {
-	logger := slogger.WithScope(slog.Default(), application+"/nats-worker")
-	if cfg.GracePeriod < 0 {
-		return errors.New("NATS grace period must not be negative")
-	}
-	if ctx.Err() != nil {
-		return nil
-	}
-	callbackCtx, cancelCallbacks := context.WithCancel(context.WithoutCancel(ctx))
-	defer cancelCallbacks()
 	closed := make(chan struct{})
-	drainErrors := make(chan error, 1)
-	var draining atomic.Bool
-	conn, err := nats.Connect(cfg.URL,
-		nats.Name(application+"-nats-worker"), nats.Timeout(cfg.Timeout),
-		nats.DrainTimeout(cfg.GracePeriod),
+	conn, err := nats.Connect(cfg.NATS.URL,
+		nats.Name(application+"-nats-worker"), nats.Timeout(cfg.NATS.Timeout),
+		nats.DrainTimeout(cfg.Server.GracePeriod),
 		nats.ClosedHandler(func(*nats.Conn) { close(closed) }),
 		nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, err error) {
 			logger.Error("NATS asynchronous error", "err", err)
-			if draining.Load() {
-				if errors.Is(err, nats.ErrDrainTimeout) {
-					err = errors.Join(err, context.DeadlineExceeded)
-				}
-				select {
-				case drainErrors <- err:
-				default:
-				}
-			}
 		}),
 	)
 	if err != nil {
 		return err
 	}
-	var callbacks sync.WaitGroup
-	var mu sync.Mutex
-	stopping := false
-	defer func() {
-		// Exclude new callbacks before Wait, including ones queued by the client.
-		mu.Lock()
-		stopping = true
-		mu.Unlock()
-		cancelCallbacks()
-		conn.Close()
-		callbacks.Wait()
-	}()
-	handle := handler(callbackCtx, conn)
-	_, err = conn.QueueSubscribe(natsSubject, "demo-workers", func(msg *nats.Msg) {
-		mu.Lock()
-		if stopping {
-			mu.Unlock()
-			return
-		}
-		callbacks.Add(1)
-		mu.Unlock()
-		defer callbacks.Done()
-		handle(msg)
-	})
+	defer conn.Close()
+
+	client := obs.NATSClient(conn)
+	_, err = conn.QueueSubscribe(natsSubject, "demo-workers", obs.NATSHandler(ctx, natsWorkerHandler(client, pool, cfg.DB.Timeout, logger, requests)))
 	if err != nil {
 		return err
 	}
-	if err := conn.FlushTimeout(cfg.Timeout); err != nil {
+
+	if err := conn.FlushTimeout(cfg.NATS.Timeout); err != nil {
 		return err
 	}
 	logger.Info("NATS worker ready", "subject", natsSubject)
-	select {
-	case <-ctx.Done():
-	case <-closed:
-		return errors.New("NATS connection closed")
-	}
-	if cfg.GracePeriod == 0 {
-		return nil
-	}
-	draining.Store(true)
-	timer := time.NewTimer(cfg.GracePeriod)
-	defer timer.Stop()
-	if err := conn.Drain(); err != nil {
-		return fmt.Errorf("NATS drain: %w", err)
-	}
-	select {
-	case <-closed:
-		select {
-		case err := <-drainErrors:
-			return fmt.Errorf("NATS drain: %w", err)
-		default:
-			return nil
+
+	return server.New(cfg.Server).WithShutdown(func(ctx context.Context) error {
+		if err := conn.Drain(); err != nil {
+			return err
 		}
-	case <-timer.C:
-		return fmt.Errorf("NATS drain: %w", context.DeadlineExceeded)
-	}
+		select {
+		case <-closed:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}).RunWorkers(ctx, func(ctx context.Context) error {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-closed:
+			if ctx.Err() != nil {
+				return nil
+			}
+			return errors.New("NATS connection closed")
+		}
+	})
 }
 
 func natsWorkerHandler(client *observability.NATSClient, pool *pgxpool.Pool, timeout time.Duration, logger *slog.Logger, requests metric.Int64Counter) func(context.Context, *nats.Msg) error {

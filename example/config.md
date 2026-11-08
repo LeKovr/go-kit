@@ -32,7 +32,6 @@
 | srv.user_header      | SRV_USER_HEADER      | string | `X-Username` | HTTP Request Header for username |
 | srv.access_log       | SRV_ACCESS_LOG       | string |  | HTTP access log filename (default: STDOUT, '-' means disable) |
 | srv.etag             | SRV_ETAG             | bool | `false` | Add ETAG in HTTP response |
-| srv.etag_max_body_bytes | SRV_ETAG_MAX_BODY_BYTES | int | `1048576` | Maximum response body size buffered for ETag; non-positive means 1 MiB |
 
 ### HTTPS Options {#srv.tls}
 

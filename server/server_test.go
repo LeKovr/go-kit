@@ -2,92 +2,250 @@ package server
 
 import (
 	"context"
-	"errors"
+	"io"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 )
 
-func TestRunFiniteWorkers(t *testing.T) {
-	if err := Run(context.Background()); err != nil {
-		t.Fatal(err)
+func TestNew(t *testing.T) {
+	cfg := Config{Listen: ":0"}
+	srv := New(cfg)
+	if srv == nil {
+		t.Fatalf("New returned nil")
 	}
-	var calls atomic.Int32
-	worker := func(context.Context) error { calls.Add(1); return nil }
-	if err := Run(context.Background(), worker, worker, worker); err != nil {
-		t.Fatal(err)
+	if srv.config.Listen != cfg.Listen {
+		t.Fatalf("config not set correctly: %v", srv.config.Listen)
 	}
-	if calls.Load() != 3 {
-		t.Fatalf("calls = %d", calls.Load())
+	if srv.ServeMux() == nil {
+		t.Fatalf("mux not initialized")
 	}
 }
 
-func TestSuccessDoesNotCancelPeers(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	finished := make(chan struct{})
-	err := Run(ctx,
-		func(context.Context) error { close(finished); return nil },
-		func(ctx context.Context) error {
-			<-finished
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			return nil
-		},
-	)
+func TestWithStatic(t *testing.T) {
+	// create temp directory with a file
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "hello.txt")
+	if err := os.WriteFile(filePath, []byte("world"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	fsys := os.DirFS(dir)
+	srv := New(Config{Listen: ":0"}).WithStatic(fsys)
+
+	// use httptest server to serve mux
+	ts := httptest.NewServer(srv.ServeMux())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/hello.txt")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	if string(body) != "world" {
+		t.Fatalf("unexpected body: %s", string(body))
 	}
 }
 
-func TestErrorCancelsAndWaitsForCleanup(t *testing.T) {
-	want := errors.New("serve failed")
-	started, cleaning, release := make(chan struct{}), make(chan struct{}), make(chan struct{})
-	done := make(chan error, 1)
-	go func() {
-		done <- Run(context.Background(),
-			func(context.Context) error { <-started; return want },
-			func(ctx context.Context) error {
-				close(started)
-				<-ctx.Done()
-				close(cleaning)
-				<-release
-				return errors.New("later cleanup error")
-			},
-		)
-	}()
-	select {
-	case <-cleaning:
-	case <-time.After(time.Second):
-		t.Fatal("peer not canceled")
+func TestWithVersion(t *testing.T) {
+	srv := New(Config{Listen: ":0", Version: VersionResponseConfig{Prefix: "/ver.js", CType: "text/javascript", Format: "var v='%s';"}})
+	srv.WithVersion("1.2.3")
+	ts := httptest.NewServer(srv.ServeMux())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/ver.js")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
 	}
-	select {
-	case err := <-done:
-		t.Fatalf("returned before cleanup: %v", err)
-	default:
+	defer resp.Body.Close()
+	if ct := resp.Header.Get("Content-Type"); ct != "text/javascript" {
+		t.Fatalf("unexpected content type: %s", ct)
 	}
-	close(release)
-	select {
-	case err := <-done:
-		if err != want {
-			t.Fatalf("got %v, want original error", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("Run did not return")
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+
+	expected := "var v='1.2.3';"
+	if !strings.Contains(string(body), expected) {
+		t.Fatalf("body does not contain expected: %s", string(body))
 	}
 }
 
-func TestCancellationDoesNotHideCleanupError(t *testing.T) {
+func TestUseMiddleware(t *testing.T) {
+	srv := New(Config{Listen: ":0"})
+	// middleware that sets header
+	mw := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Test", "ok")
+			next.ServeHTTP(w, r)
+		})
+	}
+	srv.Use(mw)
+	srv.ServeMux().HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("hello"))
+	})
+	ts := httptest.NewServer(srv.ServeMuxWithHandlers())
+	defer ts.Close()
+	resp, err := http.Get(ts.URL + "/")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	if val := resp.Header.Get("X-Test"); val != "ok" {
+		t.Fatalf("middleware header missing: %s", val)
+	}
+}
+
+func TestWithETag(t *testing.T) {
+	srv := New(Config{Listen: ":0", UseETag: true})
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("etag test"))
+	})
+	srv.ServeMux().HandleFunc("/", handler)
+	ts := httptest.NewServer(srv.ServeMuxWithHandlers())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL)
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	if etag := resp.Header.Get("ETag"); etag == "" {
+		t.Fatal("ETag header missing")
+	}
+}
+
+func TestWithAccessLog(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "access.log")
+	srv := New(Config{Listen: ":0", AccessLog: file})
+
+	// create a listener to capture address
+	ln, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	srv.WithListener(ln)
 	ctx, cancel := context.WithCancel(context.Background())
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("access log test"))
+	})
+	srv.ServeMux().HandleFunc("/", handler)
+
+	go func() {
+		if err := srv.Run(ctx); err != nil && !strings.Contains(err.Error(), "context canceled") {
+			t.Logf("Run error: %v", err)
+		}
+	}()
+	// give server time to start
+	time.Sleep(100 * time.Millisecond)
+	addr := ln.Addr().String()
+	resp, err := http.Get("http://" + addr + "/")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// shutdown & close log file
 	cancel()
-	cleanupErr := errors.New("cleanup failed")
-	want := errors.Join(context.Canceled, cleanupErr)
-	err := Run(ctx, func(context.Context) error { return want })
-	if err != want || !errors.Is(err, cleanupErr) {
-		t.Fatalf("error lost: %v", err)
+
+	log, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatalf("Read log: %v", err)
 	}
-	if err := Run(ctx, func(context.Context) error { return nil }); err != nil {
-		t.Fatal(err)
+	if !strings.Contains(string(log), `"GET /" 200`) {
+		t.Fatalf("Log data header missing: %s", string(log))
+
 	}
+
+}
+
+func TestWithShutdown(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	called := false
+	worker := func(ctx context.Context) error {
+		called = true
+		return nil
+	}
+	srv := New(Config{Listen: ":0"}).WithShutdown(worker)
+	err := srv.RunWorkers(ctx)
+	if err != nil && !strings.Contains(err.Error(), "context canceled") {
+		t.Fatalf("RunWorkers returned error: %v", err)
+	}
+	if !called {
+		t.Fatalf("worker not called")
+	}
+}
+
+func TestRunWorkers(t *testing.T) {
+	srv := New(Config{Listen: ":0"})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	var called atomic.Int32
+	worker := func(ctx context.Context) error {
+		called.Add(int32(1))
+		return nil
+	}
+	srv.WithNWorkers(2, worker)
+	err := srv.RunWorkers(ctx, worker)
+	if err != nil && !strings.Contains(err.Error(), "context canceled") {
+		t.Fatalf("RunWorkers returned error: %v", err)
+	}
+	called32 := called.Load()
+	if called32 != int32(3) {
+		t.Fatalf("worker not called, want 3 got %d", called32)
+	}
+}
+
+func TestRun(t *testing.T) {
+	srv := New(Config{Listen: ":0"})
+	srv.ServeMux().HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("pong"))
+	})
+	// create a listener to capture address
+	ln, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	srv = srv.WithListener(ln)
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		if err := srv.Run(ctx); err != nil && !strings.Contains(err.Error(), "context canceled") {
+			t.Logf("Run error: %v", err)
+		}
+	}()
+	// give server time to start
+	time.Sleep(100 * time.Millisecond)
+	addr := ln.Addr().String()
+	resp, err := http.Get("http://" + addr + "/ping")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+
+	if string(body) != "pong" {
+		t.Fatalf("unexpected body: %s", string(body))
+	}
+	cancel()
+	time.Sleep(100 * time.Millisecond)
+}
+
+// Helper to expose Config method (not exported). We use reflection.
+func (srv *Service) Config() Config {
+	return srv.config
 }

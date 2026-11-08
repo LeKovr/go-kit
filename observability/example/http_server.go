@@ -8,7 +8,7 @@ import (
 
 	"github.com/LeKovr/go-kit/observability"
 	"github.com/LeKovr/go-kit/observability/example/api"
-	httpserver "github.com/LeKovr/go-kit/server/http"
+	"github.com/LeKovr/go-kit/server"
 	"github.com/LeKovr/go-kit/slogger"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -28,7 +28,7 @@ func runServer(ctx context.Context, cfg Config, obs *observability.Service) erro
 	}
 	defer grpcConn.Close()
 
-	srv := httpserver.New(cfg.Server)
+	srv := server.New(cfg.Server)
 	srv.Use(obs.HTTPMiddleware())
 	srv.ServeMux().HandleFunc("/demo", calculatorHTTPHandler(api.NewCalculatorClient(grpcConn), cfg.GRPC.Timeout, logger))
 	return srv.Run(ctx)
