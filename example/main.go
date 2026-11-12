@@ -73,7 +73,7 @@ func Run(ctx context.Context, exitFunc func(code int)) {
 
 	// static pages server
 	hfs := os.DirFS(cfg.Root)
-	httpSrv := httpserver.New(cfg.Server).WithStatic(hfs).WithVersion(version)
+	srv := httpserver.New(cfg.Server).WithStatic(hfs).WithVersion(version)
 
-	err = server.Run(ctx, httpSrv.Run)
+	err = server.Run(ctx, srv.Run)
 }

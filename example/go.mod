@@ -13,9 +13,6 @@ require (
 require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
-	github.com/go-http-utils/etag v0.0.0-20161124023236-513ea8f21eb1 // indirect
-	github.com/go-http-utils/fresh v0.0.0-20161124030543-7231e26a4b27 // indirect
-	github.com/go-http-utils/headers v0.0.0-20181008091004-fed159eddc2a // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/jessevdk/go-flags v1.6.1 // indirect
 	github.com/lmittmann/tint v1.0.3 // indirect
