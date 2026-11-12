@@ -7,6 +7,9 @@ use (
 	./observability
 	./observability/example
 	./server
+	./server/example
+	./server/grpc
+	./server/http
 	./slogger
 	./ver
 )

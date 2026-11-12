@@ -1,4 +1,4 @@
-package server
+package httpserver
 
 import (
 	"context"
@@ -24,7 +24,12 @@ func TestAuditGracefulShutdownWaitsForHandler(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- srv.Run(ctx) }()
-	go http.Get("http://" + ln.Addr().String() + "/") //nolint:errcheck
+	go func() {
+		resp, err := http.Get("http://" + ln.Addr().String() + "/")
+		if err == nil {
+			_ = resp.Body.Close()
+		}
+	}()
 	select {
 	case <-started:
 	case <-time.After(time.Second):

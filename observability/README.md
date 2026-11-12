@@ -51,7 +51,9 @@ defer restore()
 Сервер:
 
 ```go
-srv := server.New(cfg.Server)
+import httpserver "github.com/LeKovr/go-kit/server/http"
+
+srv := httpserver.New(cfg.Server)
 srv.Use(obs.HTTPMiddleware())
 ```
 
@@ -99,7 +101,9 @@ client.Transport = obs.HTTPTransport(http.DefaultTransport, obs.HTTPClientTrace(
 Сервер:
 
 ```go
-srv := grpc.NewServer(
+import grpcserver "github.com/LeKovr/go-kit/server/grpc"
+
+srv := grpcserver.New(cfg.GRPC,
 	grpc.StatsHandler(obs.GRPCServerHandler()),
 )
 ```

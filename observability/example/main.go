@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/LeKovr/go-kit/config"
 	"github.com/LeKovr/go-kit/observability"
-	"github.com/LeKovr/go-kit/server"
+	httpserver "github.com/LeKovr/go-kit/server/http"
 	"github.com/LeKovr/go-kit/slogger"
 )
 
@@ -16,7 +18,7 @@ import (
 type Config struct {
 	Mode string `long:"mode" default:"http-gateway" choice:"http-gateway" choice:"http-client" choice:"grpc-server" choice:"nats-worker" description:"Example mode: http-gateway, http-client, grpc-server or nats-worker" env:"MODE"`
 
-	Server        server.Config        `group:"HTTP Options" namespace:"http" env-namespace:"HTTP"`
+	Server        httpserver.Config    `group:"HTTP Options" namespace:"http" env-namespace:"HTTP"`
 	GRPC          GRPCConfig           `group:"gRPC Options" namespace:"grpc" env-namespace:"GRPC"`
 	NATS          NATSConfig           `group:"NATS Options" namespace:"nats" env-namespace:"NATS"`
 	DB            DBConfig             `group:"Database Options" namespace:"db" env-namespace:"DB"`
@@ -55,7 +57,8 @@ func main() {
 		return
 	}
 
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	name := serviceName(cfg.Mode)
 
 	var obs *observability.Service
@@ -64,7 +67,7 @@ func main() {
 	}
 
 	defer func() {
-		if er := obs.Shutdown(ctx); er != nil {
+		if er := obs.Shutdown(context.WithoutCancel(ctx)); er != nil {
 			slog.Error("observability shutdown", "err", er)
 		}
 	}()

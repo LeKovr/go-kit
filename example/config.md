@@ -17,34 +17,35 @@
 | log.time_format      | LOG_TIME_FORMAT      | string | `2006-01-02 15:04:05.000` | Time format for text output |
 | log.dest             | LOG_DEST             | string |  | Log destination (default: '', means STDERR) |
 
-### Server Options {#srv}
+### HTTP Options {#http}
 
 | Name | ENV | Type | Default | Description |
 |------|-----|------|---------|-------------|
-| srv.listen           | SRV_LISTEN           | string | `:8080` | Addr and port which server listens at |
-| srv.maxheader        | -                    | int |  | MaxHeaderBytes |
-| srv.rto              | -                    | time.Duration | `10s` | HTTP read timeout |
-| srv.wto              | -                    | time.Duration | `60s` | HTTP write timeout, '0' means disable |
-| srv.rhto             | -                    | time.Duration | `10s` | HTTP read header timeout |
-| srv.ito              | -                    | time.Duration | `10s` | HTTP idle timeout |
-| srv.grace            | -                    | time.Duration | `10s` | Stop grace period |
-| srv.ip_header        | SRV_IP_HEADER        | string | `X-Real-IP` | HTTP Request Header for remote IP |
-| srv.user_header      | SRV_USER_HEADER      | string | `X-Username` | HTTP Request Header for username |
-| srv.access_log       | SRV_ACCESS_LOG       | string |  | HTTP access log filename (default: STDOUT, '-' means disable) |
-| srv.etag             | SRV_ETAG             | bool | `false` | Add ETAG in HTTP response |
+| http.listen           | HTTP_LISTEN           | string | `:8080` | Addr and port which server listens at |
+| http.maxheader        | -                    | int |  | MaxHeaderBytes |
+| http.rto              | -                    | time.Duration | `10s` | HTTP read timeout |
+| http.wto              | -                    | time.Duration | `60s` | HTTP write timeout, '0' means disable |
+| http.rhto             | -                    | time.Duration | `10s` | HTTP read header timeout |
+| http.ito              | -                    | time.Duration | `10s` | HTTP idle timeout |
+| http.grace            | -                    | time.Duration | `10s` | Stop grace period |
+| http.ip_header        | HTTP_IP_HEADER        | string | `X-Real-IP` | HTTP Request Header for remote IP |
+| http.user_header      | HTTP_USER_HEADER      | string | `X-Username` | HTTP Request Header for username |
+| http.access_log       | HTTP_ACCESS_LOG       | string |  | HTTP access log filename (default: STDOUT, '-' means disable) |
+| http.etag             | HTTP_ETAG             | bool | `false` | Add ETAG in HTTP response |
+| http.etag_max_body_bytes | HTTP_ETAG_MAX_BODY_BYTES | int | `1048576` | Maximum response body size buffered for ETag; non-positive means 1 MiB |
 
-### HTTPS Options {#srv.tls}
-
-| Name | ENV | Type | Default | Description |
-|------|-----|------|---------|-------------|
-| srv.tls.cert         | SRV_TLS_CERT         | string |  | CertFile for serving HTTPS instead HTTP |
-| srv.tls.key          | SRV_TLS_KEY          | string |  | KeyFile for serving HTTPS instead HTTP |
-| srv.tls.no-check     | -                    | bool | `false` | disable tls certificate validation |
-
-### Version response Options {#srv.vr}
+### HTTPS Options {#http.tls}
 
 | Name | ENV | Type | Default | Description |
 |------|-----|------|---------|-------------|
-| srv.vr.prefix        | -                    | string | `/js/version.js` | URL for version response |
-| srv.vr.format        | -                    | string | `document.addEventListener('DOMContentLoaded', () => { appVersion.innerText = '%s'; });\n` | Format string for version response |
-| srv.vr.ctype         | -                    | string | `text/javascript` | js code Content-Type header |
+| http.tls.cert         | HTTP_TLS_CERT         | string |  | CertFile for serving HTTPS instead HTTP |
+| http.tls.key          | HTTP_TLS_KEY          | string |  | KeyFile for serving HTTPS instead HTTP |
+| http.tls.no-check     | -                    | bool | `false` | disable tls certificate validation |
+
+### Version response Options {#http.vr}
+
+| Name | ENV | Type | Default | Description |
+|------|-----|------|---------|-------------|
+| http.vr.prefix        | -                    | string | `/js/version.js` | URL for version response |
+| http.vr.format        | -                    | string | `document.addEventListener('DOMContentLoaded', () => { appVersion.innerText = '%s'; });\n` | Format string for version response |
+| http.vr.ctype         | -                    | string | `text/javascript` | js code Content-Type header |
