@@ -17,7 +17,7 @@ type Config struct {
 	Root string `default:""      description:"Static files root directory"                                 env:"ROOT"        long:"root"`
 
 	Logger slogger.Config    `env-namespace:"LOG" group:"Logging Options"      namespace:"log"`
-	Server httpserver.Config `env-namespace:"SRV" group:"Server Options"       namespace:"srv"`
+	Server httpserver.Config `env-namespace:"HTTP" group:"HTTP Options"       namespace:"http"`
 
 	config.EnableShowVersion
 	config.EnableConfigDefGen
@@ -73,7 +73,7 @@ func Run(ctx context.Context, exitFunc func(code int)) {
 
 	// static pages server
 	hfs := os.DirFS(cfg.Root)
-	srv := httpserver.New(cfg.Server).WithStatic(hfs).WithVersion(version)
+	httpSrv := httpserver.New(cfg.Server).WithStatic(hfs).WithVersion(version)
 
-	err = server.Run(ctx, srv.Run)
+	err = server.Run(ctx, httpSrv.Run)
 }
