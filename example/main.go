@@ -7,8 +7,8 @@ import (
 
 	"github.com/LeKovr/go-kit/config"
 	"github.com/LeKovr/go-kit/server"
-	httpserver "github.com/LeKovr/go-kit/transport/http"
 	"github.com/LeKovr/go-kit/slogger"
+	httpserver "github.com/LeKovr/go-kit/transport/http"
 	"github.com/LeKovr/go-kit/ver"
 )
 
@@ -17,7 +17,9 @@ type Config struct {
 	Root string `default:""      description:"Static files root directory"                                 env:"ROOT"        long:"root"`
 
 	Logger slogger.Config    `env-namespace:"LOG" group:"Logging Options"      namespace:"log"`
-	Server httpserver.Config `env-namespace:"HTTP" group:"HTTP Options"       namespace:"http"`
+	HTTP   httpserver.Config `env-namespace:"HTTP" group:"HTTP Options"       namespace:"http"`
+
+	Server server.Config `env-namespace:"SERVER" group:"Server Options" namespace:"server"`
 
 	config.EnableShowVersion
 	config.EnableConfigDefGen
@@ -73,7 +75,8 @@ func Run(ctx context.Context, exitFunc func(code int)) {
 
 	// static pages server
 	hfs := os.DirFS(cfg.Root)
-	httpSrv := httpserver.New(cfg.Server).WithStatic(hfs).WithVersion(version)
+	httpSrv := httpserver.New(cfg.HTTP).WithStatic(hfs).WithVersion(version)
 
-	err = server.Run(ctx, httpSrv.Run)
+	srv := server.New(cfg.Server).WithShutdown(httpSrv.Shutdown)
+	err = srv.Run(ctx, httpSrv.Run)
 }

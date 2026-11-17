@@ -10,7 +10,7 @@
 [gc1]: https://goreportcard.com/badge/github.com/LeKovr/go-kit/transport/grpc
 [gc2]: https://goreportcard.com/report/github.com/LeKovr/go-kit/transport/grpc
 [gr1]: https://img.shields.io/github/v/tag/Lekovr/go-kit?filter=transport/grpc/*
-[gr2]: https://github.com/LeKovr/go-kit/releases?q=server&expanded=true
+[gr2]: https://github.com/LeKovr/go-kit/releases?q=transport/grpc&expanded=true
 [gl1]: https://img.shields.io/github/license/LeKovr/go-kit.svg
 [gl2]: https://github.com/LeKovr/go-kit/blob/master/LICENSE
 
@@ -34,13 +34,12 @@ Defaults применяет `config.Open`.
 ```
 gRPC Options:
       --grpc.listen=  Addr and port which gRPC server listens at (default: :9090) [$GRPC_LISTEN]
-      --grpc.grace=   gRPC stop grace period (default: 10s) [$GRPC_GRACE]
 ```
 
 `Run` допускает один запуск и закрывает listener. При отмене контекста выполняется
-`GracefulStop`, по истечении grace вызывается `Stop` и возвращается
-ошибка с `context.DeadlineExceeded`. Ноль означает немедленный `Stop`, отрицательное значение
-запрещено. Обработчик, игнорирующий отмену контекста, может задержать возврат `Run`.
+принудительный `Stop`. `Shutdown(ctx)` ждёт завершения активных RPC до истечения
+переданного контекста, затем вызывает `Stop`.
+Обработчик, игнорирующий отмену контекста, может задержать возврат `Run`.
 
-Для обработки SIGINT/SIGTERM используйте `server.Run(ctx, srv.Run)`.
-Совместный запуск с HTTP показан в [server/example](../example).
+Для обработки SIGINT/SIGTERM используйте [server](../../server)
+с `WithShutdown(srv.Shutdown)`. Совместный запуск с HTTP показан в [примере](../../example).

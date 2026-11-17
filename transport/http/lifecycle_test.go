@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-func TestRunForcesCloseAfterGracePeriod(t *testing.T) {
+func TestShutdownForcesCloseAfterDeadline(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -24,8 +24,7 @@ func TestRunForcesCloseAfterGracePeriod(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	srv := New(Config{
-		AccessLog:   AccessLogDisabled,
-		GracePeriod: 20 * time.Millisecond,
+		AccessLog: AccessLogDisabled,
 	}).WithListener(ln)
 	srv.ServeMux().HandleFunc("/", func(http.ResponseWriter, *http.Request) {
 		close(started)
@@ -33,6 +32,8 @@ func TestRunForcesCloseAfterGracePeriod(t *testing.T) {
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	runDone := make(chan error, 1)
 	go func() { runDone <- srv.Run(ctx) }()
 	requestDone := make(chan struct{})
@@ -49,7 +50,12 @@ func TestRunForcesCloseAfterGracePeriod(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("handler did not start")
 	}
-	cancel()
+
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancelShutdown()
+
+	shutdownDone := make(chan error, 1)
+	go func() { shutdownDone <- srv.Shutdown(shutdownCtx) }()
 
 	select {
 	case runErr := <-runDone:
@@ -57,7 +63,11 @@ func TestRunForcesCloseAfterGracePeriod(t *testing.T) {
 			t.Fatalf("Run error: got %v, want context deadline exceeded", runErr)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("Run did not stop after grace period")
+		t.Fatal("Run did not stop after shutdown deadline")
+	}
+
+	if err := <-shutdownDone; !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Shutdown error: %v", err)
 	}
 
 	close(release)
@@ -78,7 +88,7 @@ func TestGracefulRequestContext(t *testing.T) {
 	defer cancel()
 	started, release := make(chan struct{}), make(chan struct{})
 	requestCtx := make(chan context.Context, 1)
-	srv := New(Config{GracePeriod: time.Second, AccessLog: AccessLogDisabled}).WithListener(listener)
+	srv := New(Config{AccessLog: AccessLogDisabled}).WithListener(listener)
 	srv.ServeMux().HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		requestCtx <- r.Context()
 		close(started)
@@ -106,8 +116,15 @@ func TestGracefulRequestContext(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("handler not started")
 	}
+
 	rctx := <-requestCtx
-	cancel()
+
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), time.Second)
+	defer cancelShutdown()
+
+	shutdownDone := make(chan error, 1)
+	go func() { shutdownDone <- srv.Shutdown(shutdownCtx) }()
+
 	select {
 	case <-closing:
 	case <-time.After(time.Second):
@@ -120,7 +137,12 @@ func TestGracefulRequestContext(t *testing.T) {
 	if err := <-response; err != nil {
 		t.Fatal(err)
 	}
+
 	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+
+	if err := <-shutdownDone; err != nil {
 		t.Fatal(err)
 	}
 	if rctx.Err() == nil {
@@ -164,7 +186,7 @@ func TestImmediateStopCancelsRequest(t *testing.T) {
 }
 
 func TestStartupCleanupAndSingleRun(t *testing.T) {
-	for _, scenario := range []string{"canceled", "negative", "log", "tls"} {
+	for _, scenario := range []string{"canceled", "log", "tls"} {
 		t.Run(scenario, func(t *testing.T) {
 			ln := newTestListener(t)
 			var closes atomic.Int32
@@ -174,8 +196,6 @@ func TestStartupCleanupAndSingleRun(t *testing.T) {
 			switch scenario {
 			case "canceled":
 				cancel()
-			case "negative":
-				cfg.GracePeriod = -1
 			case "log":
 				cfg.AccessLog = filepath.Join(t.TempDir(), "missing", "access.log")
 			case "tls":
@@ -309,96 +329,58 @@ func TestNewAndCanceledRunDoNotOpenResources(t *testing.T) {
 	}
 }
 
-func TestServeErrorDrainsActiveRequest(t *testing.T) {
-	for _, scenario := range []string{"graceful", "timeout"} {
-		t.Run(scenario, func(t *testing.T) {
-			synctest.Test(t, func(t *testing.T) {
-				serverConn, clientConn := net.Pipe()
-				defer serverConn.Close()
-				defer clientConn.Close()
-				fail := make(chan struct{})
-				serveErr, closeErr := errors.New("accept failed"), errors.New("close failed")
-				ln := &fatalAcceptListener{
-					conn: serverConn, fail: fail, closed: make(chan struct{}),
-					acceptErr: serveErr, closeErr: closeErr,
-				}
-				defer ln.Close()
-				const grace = time.Second
-				srv := New(Config{GracePeriod: grace, AccessLog: AccessLogDisabled}).WithListener(ln)
-				started := make(chan context.Context, 1)
-				release := make(chan struct{})
-				releaseHandler := sync.OnceFunc(func() { close(release) })
-				defer releaseHandler()
-				srv.ServeMux().HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-					started <- r.Context()
-					<-release
-					_, _ = w.Write([]byte("completed"))
-				})
-				ctx, cancel := context.WithCancel(context.Background())
-				defer cancel()
-				done := make(chan error, 1)
-				go func() { done <- srv.Run(ctx) }()
-				transport := &http.Transport{
-					DialContext: func(context.Context, string, string) (net.Conn, error) {
-						return clientConn, nil
-					},
-					DisableKeepAlives: true,
-				}
-				defer transport.CloseIdleConnections()
-				client := &http.Client{Transport: transport}
-				type response struct {
-					body string
-					err  error
-				}
-				requestDone := make(chan response, 1)
-				go func() {
-					resp, err := client.Get("http://example.test/")
-					if err != nil {
-						requestDone <- response{err: err}
-						return
-					}
-					defer resp.Body.Close()
-					body, err := io.ReadAll(resp.Body)
-					requestDone <- response{body: string(body), err: err}
-				}()
-				requestCtx := <-started
-				failedAt := time.Now()
-				close(fail)
-				synctest.Wait()
-				select {
-				case err := <-done:
-					t.Fatalf("Run returned before drain: %v", err)
-				default:
-				}
-				if requestCtx.Err() != nil {
-					t.Fatal("request canceled before drain")
-				}
-				if scenario == "graceful" {
-					releaseHandler()
-				}
-				runErr := <-done
-				if !errors.Is(runErr, serveErr) || !errors.Is(runErr, closeErr) {
-					t.Fatalf("serve or cleanup error lost: %v", runErr)
-				}
-				if errors.Is(runErr, context.DeadlineExceeded) != (scenario == "timeout") {
-					t.Fatalf("unexpected shutdown error: %v", runErr)
-				}
-				result := <-requestDone
-				if scenario == "graceful" {
-					if result.err != nil || result.body != "completed" {
-						t.Fatalf("response = %q, error = %v", result.body, result.err)
-					}
-				} else {
-					if time.Since(failedAt) < grace {
-						t.Fatal("forced stop before grace expired")
-					}
-					if result.err == nil || requestCtx.Err() == nil {
-						t.Fatalf("request not stopped: response error = %v, context error = %v", result.err, requestCtx.Err())
-					}
-				}
-			})
+func TestServeErrorForcesCloseActiveRequest(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		serverConn, clientConn := net.Pipe()
+		defer serverConn.Close()
+		defer clientConn.Close()
+
+		serveErr, closeErr := errors.New("accept failed"), errors.New("close failed")
+
+		ln := &fatalAcceptListener{
+			conn: serverConn, fail: make(chan struct{}), closed: make(chan struct{}),
+			acceptErr: serveErr, closeErr: closeErr,
+		}
+		defer ln.Close()
+
+		srv := New(Config{AccessLog: AccessLogDisabled}).WithListener(ln)
+		started := make(chan context.Context, 1)
+		handlerDone := make(chan struct{})
+
+		srv.ServeMux().HandleFunc("/", func(_ http.ResponseWriter, r *http.Request) {
+			started <- r.Context()
+
+			<-r.Context().Done()
+			close(handlerDone)
 		})
-	}
+
+		done := make(chan error, 1)
+		go func() { done <- srv.Run(context.Background()) }()
+
+		requestDone := make(chan struct{})
+		go func() {
+			defer close(requestDone)
+
+			_, _ = io.WriteString(clientConn, "GET / HTTP/1.1\r\nHost: example.test\r\n\r\n")
+			_, _ = io.Copy(io.Discard, clientConn)
+		}()
+
+		requestCtx := <-started
+
+		close(ln.fail)
+
+		runErr := <-done
+		if !errors.Is(runErr, serveErr) || !errors.Is(runErr, closeErr) {
+			t.Fatalf("serve or cleanup error lost: %v", runErr)
+		}
+
+		if requestCtx.Err() == nil {
+			t.Fatal("request context left live after serve failure")
+		}
+
+		<-handlerDone
+		<-requestDone
+	})
 }
 
 type fatalAcceptListener struct {

@@ -40,18 +40,17 @@ services:
 
   grpc:
     <<: *example
-    command: ["--mode=grpc-server"]
+    command: ["--mode=grpc-server", "--server.grace=${SERVER_GRACE:-10s}"]
     environment:
       <<: *example-environment
       GRPC_LISTEN: :9090
-      GRPC_GRACE: "${GRPC_GRACE:-10s}"
     depends_on:
       worker:
         condition: service_started
 
   http-gateway:
     <<: *example
-    command: ["--mode=http-gateway"]
+    command: ["--mode=http-gateway", "--server.grace=${SERVER_GRACE:-10s}"]
     environment:
       <<: *example-environment
       GRPC_ADDRESS: grpc:9090

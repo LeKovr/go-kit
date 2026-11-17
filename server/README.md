@@ -19,14 +19,25 @@
 ## Использование
 
 ```go
-err := server.Run(ctx, httpService.Run, grpcService.Run, backgroundWorker)
+srv := server.New(cfg.Server).
+    WithShutdown(httpSrv.Shutdown, grpcSrv.Shutdown)
+
+err := srv.Run(ctx, httpSrv.Run, grpcSrv.Run, backgroundWorker)
 ```
 
-Воркеры имеют тип `func(context.Context) error` и запускаются параллельно.
-SIGINT/SIGTERM, отмена контекста или первая ошибка отменяют общий контекст.
-`Run` ждёт завершения всех воркеров и возвращает первую ошибку.
+`cfg.Server` имеет тип `server.Config`. Воркеры имеют тип `func(context.Context) error`
+и запускаются параллельно. Для воркеров, которым достаточно отмены контекста,
+`WithShutdown` не нужен.
+
+SIGINT/SIGTERM, отмена внешнего контекста, ошибка воркера или завершение всех воркеров
+запускают остановку. Функции из `WithShutdown` вызываются параллельно; после их
+завершения или истечения `GracePeriod` отменяется контекст воркеров.
+`Run` ждёт завершения всех функций и объединяет ошибки, даже если срок уже истёк.
 Возврат `nil` завершает только текущий воркер. При штатной отмене воркер
 должен завершить работу и вернуть `nil`.
 
-HTTP и gRPC реализованы в отдельных пакетах: [transport/http](http) и
-[transport/grpc](grpc). Их совместный запуск показан в [примере](example).
+`config.Open` задаёт `GracePeriod` по умолчанию `10s`; в ручном конфиге задайте его явно.
+БД и клиентов закрывайте после возврата `Run`.
+
+HTTP и gRPC реализованы в отдельных пакетах: [transport/http](../transport/http) и
+[transport/grpc](../transport/grpc). Их совместный запуск показан в [примере](../example).

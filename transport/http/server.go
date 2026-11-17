@@ -14,8 +14,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/felixge/httpsnoop"
 )
 
 // TLSConfig holds TLS config options.
@@ -41,7 +39,6 @@ type Config struct {
 	WriteTimeout      time.Duration `long:"wto" default:"60s" description:"HTTP write timeout, '0' means disable"`
 	ReadHeaderTimeout time.Duration `long:"rhto" default:"10s" description:"HTTP read header timeout"`
 	IdleTimeout       time.Duration `long:"ito" default:"10s" description:"HTTP idle timeout"`
-	GracePeriod       time.Duration `long:"grace" default:"10s" description:"Stop grace period"`
 
 	IPHeader         string `long:"ip_header" env:"IP_HEADER" default:"X-Real-IP" description:"HTTP Request Header for remote IP"`
 	UserHeader       string `long:"user_header" env:"USER_HEADER" default:"X-Username" description:"HTTP Request Header for username"`
@@ -53,9 +50,6 @@ type Config struct {
 	Version VersionResponseConfig `group:"Version response Options" namespace:"vr"`
 }
 
-// Handler is a http midleware handler.
-type Handler func(http.Handler) http.Handler
-
 // Service owns an HTTP server and its listener. Configure it before Run.
 type Service struct {
 	config          Config
@@ -64,6 +58,14 @@ type Service struct {
 	handlers        []Handler
 	accessLogWriter io.Writer
 	started         atomic.Bool
+	runCalled       atomic.Bool
+	stopOnce        sync.Once
+	stopRequested   chan struct{}
+	stopCtx         context.Context
+	stopCancel      context.CancelFunc
+	stopImmediate   bool
+	done            chan struct{}
+	stopErr         error
 }
 
 // AccessLogDisabled holds access_log value for access logging disabling.
@@ -72,12 +74,14 @@ const AccessLogDisabled = "-"
 // New returns *Service.
 func New(cfg Config) *Service {
 	return &Service{
-		config: cfg,
-		mux:    http.NewServeMux(),
+		config:        cfg,
+		mux:           http.NewServeMux(),
+		stopRequested: make(chan struct{}),
+		done:          make(chan struct{}),
 	}
 }
 
-// WithListener sets service listener.
+// WithListener supplies a listener owned by the first Run or Shutdown call.
 func (srv *Service) WithListener(listener net.Listener) *Service {
 	srv.listener = listener
 	return srv
@@ -101,51 +105,50 @@ func (srv *Service) WithVersion(version string) *Service {
 	return srv
 }
 
-// Use adds handler for muxer.
-func (srv *Service) Use(handler Handler) *Service {
-	srv.handlers = append(srv.handlers, handler)
-	return srv
-}
-
-// ServeMuxWithHandlers return mux joined with defined by Use handlers.
-func (srv *Service) ServeMuxWithHandlers() http.Handler {
-	var mux http.Handler = srv.mux
-	for _, handler := range srv.handlers {
-		mux = handler(mux)
-	}
-	if srv.config.UseETag {
-		mux = withETag(mux, srv.config.ETagMaxBodyBytes)
-	}
-	return mux
-}
-
 // ServeMux returns service muxer.
 func (srv *Service) ServeMux() *http.ServeMux {
 	return srv.mux
 }
 
-// Run serves HTTP(S) once, draining active requests before forced shutdown.
-// The listener passed to WithListener becomes owned by Run, including on error.
+// Run serves HTTP(S) once. Context cancellation forces closure; use Shutdown to drain requests.
+// The listener passed to WithListener is closed on return, including on error.
 func (srv *Service) Run(ctx context.Context) (err error) {
-	if !srv.started.CompareAndSwap(false, true) {
+	if !srv.runCalled.CompareAndSwap(false, true) {
 		return errors.New("HTTP service already run")
 	}
+
+	if !srv.started.CompareAndSwap(false, true) {
+		<-srv.done
+		return srv.stopErr
+	}
+
 	var listener *ownedListener
+
 	if srv.listener != nil {
 		listener = &ownedListener{Listener: srv.listener}
 	}
 	defer func() {
 		if listener != nil {
-			err = errors.Join(err, listener.Close())
+			srv.stopErr = errors.Join(srv.stopErr, listener.Close())
 		}
-		err = errors.Join(err, srv.closeAccessLog())
+
+		srv.stopErr = errors.Join(srv.stopErr, srv.closeAccessLog())
+		srv.beginShutdown(context.Background(), true)
+		srv.stopCancel()
+		err = errors.Join(err, srv.stopErr)
+		close(srv.done)
 	}()
-	if srv.config.GracePeriod < 0 {
-		return errors.New("HTTP grace period must not be negative")
-	}
+
 	if ctx.Err() != nil {
 		return nil
 	}
+
+	select {
+	case <-srv.stopRequested:
+		return nil
+	default:
+	}
+
 	if listener == nil {
 		ln, listenErr := net.Listen("tcp", srv.config.Listen)
 		if listenErr != nil {
@@ -180,9 +183,18 @@ func (srv *Service) Run(ctx context.Context) (err error) {
 	}
 	defer func() {
 		cancelRequests()
-		err = errors.Join(err, hs.Close())
+
+		srv.stopErr = errors.Join(srv.stopErr, hs.Close())
 	}()
+
+	select {
+	case <-srv.stopRequested:
+		return nil
+	default:
+	}
+
 	var stopping atomic.Bool
+
 	served := make(chan error, 1)
 	go func() {
 		var serveErr error
@@ -205,24 +217,81 @@ func (srv *Service) Run(ctx context.Context) (err error) {
 	case serveErr = <-served:
 		serveDone = true
 	case <-ctx.Done():
+	case <-srv.stopRequested:
 	}
+
 	stopping.Store(true)
-	if srv.config.GracePeriod == 0 {
-		cancelRequests()
-		err = hs.Close()
-	} else {
-		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), srv.config.GracePeriod)
-		shutdownErr := hs.Shutdown(shutdownCtx)
-		cancel()
-		if shutdownErr != nil {
-			cancelRequests()
-			err = errors.Join(fmt.Errorf("HTTP shutdown: %w", shutdownErr), hs.Close())
-		}
-	}
+	srv.beginShutdown(context.Background(), true)
+	// Run cancellation also interrupts an explicit Shutdown already in progress.
+	stopCancel := context.AfterFunc(ctx, srv.stopCancel)
+	defer stopCancel()
+
+	srv.stopErr = srv.shutdown(hs, cancelRequests)
+
 	if !serveDone {
 		serveErr = <-served
 	}
-	return errors.Join(err, serveErr)
+
+	return serveErr
+}
+
+func (srv *Service) shutdown(hs *http.Server, cancelRequests context.CancelFunc) error {
+	if srv.stopImmediate {
+		cancelRequests()
+		return hs.Close()
+	}
+
+	if err := hs.Shutdown(srv.stopCtx); err != nil {
+		cancelRequests()
+		return errors.Join(fmt.Errorf("HTTP shutdown: %w", err), hs.Close())
+	}
+
+	return nil
+}
+
+// Shutdown stops admission and drains active work using ctx, without a new timeout.
+// It is safe before Run, during startup and on repeated calls. A call before Run
+// closes a supplied listener and prevents Run from starting. An expired context
+// requests forced closure; Run still owns and waits for resource cleanup.
+func (srv *Service) Shutdown(ctx context.Context) error {
+	select {
+	case <-srv.done:
+		return srv.stopErr
+	default:
+	}
+
+	srv.beginShutdown(ctx, false)
+
+	if srv.started.CompareAndSwap(false, true) {
+		if srv.listener != nil {
+			srv.stopErr = srv.listener.Close()
+		}
+
+		srv.stopCancel()
+		close(srv.done)
+	}
+
+	select {
+	case <-srv.done:
+		return srv.stopErr
+	default:
+	}
+
+	select {
+	case <-srv.done:
+		return srv.stopErr
+	case <-ctx.Done():
+		srv.stopCancel()
+		return ctx.Err()
+	}
+}
+
+func (srv *Service) beginShutdown(ctx context.Context, immediate bool) {
+	srv.stopOnce.Do(func() {
+		srv.stopCtx, srv.stopCancel = context.WithCancel(ctx)
+		srv.stopImmediate = immediate
+		close(srv.stopRequested)
+	})
 }
 
 // ownedListener preserves the first Close error without closing twice.
@@ -248,36 +317,4 @@ func (srv *Service) closeAccessLog() error {
 	}
 	slog.Info("Log closed")
 	return nil
-}
-
-// WithAccessLog calculates estimate and prints HTTP request log.
-func (srv *Service) accessLogHandler(handler http.Handler) http.Handler {
-	var writer io.Writer = os.Stdout
-	if srv.accessLogWriter != nil {
-		writer = srv.accessLogWriter
-	}
-	cfg := srv.config
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		m := httpsnoop.CaptureMetrics(handler, w, r)
-		ip := r.Header.Get(cfg.IPHeader)
-		if ip == "" {
-			ip, _, _ = net.SplitHostPort(r.RemoteAddr)
-		}
-		user := r.Header.Get(cfg.UserHeader)
-		if user == "" {
-			user = "-"
-		}
-		fmt.Fprintf(writer, `%s - %s [%s] "%s %s" %d %s %d %s%s`,
-			ip,
-			user,
-			time.Now().Format(time.DateTime),
-			r.Method,
-			r.URL.RequestURI(),
-			m.Code,
-			m.Duration,
-			m.Written,
-			r.Header.Get("Referer"),
-			"\n",
-		)
-	})
 }

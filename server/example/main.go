@@ -15,6 +15,8 @@ type Config struct {
 	HTTP httpserver.Config `group:"HTTP Options" namespace:"http" env-namespace:"HTTP"`
 	GRPC grpcserver.Config `group:"gRPC Options" namespace:"grpc" env-namespace:"GRPC"`
 
+	Server server.Config `env-namespace:"SERVER" group:"Server Options" namespace:"server"`
+
 	config.EnableShowVersion
 	config.EnableConfigDefGen
 	config.EnableConfigDump
@@ -36,5 +38,6 @@ func main() {
 	grpcServer := grpcserver.New(cfg.GRPC)
 	api.RegisterExampleServiceServer(grpcServer.Server(), &grpcHandler{service: svc})
 
-	err = server.Run(context.Background(), httpServer.Run, grpcServer.Run)
+	srv := server.New(cfg.Server).WithShutdown(httpServer.Shutdown, grpcServer.Shutdown)
+	err = srv.Run(context.Background(), httpServer.Run, grpcServer.Run)
 }

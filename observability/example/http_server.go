@@ -8,8 +8,9 @@ import (
 
 	"github.com/LeKovr/go-kit/observability"
 	"github.com/LeKovr/go-kit/observability/example/api"
-	httpserver "github.com/LeKovr/go-kit/transport/http"
+	"github.com/LeKovr/go-kit/server"
 	"github.com/LeKovr/go-kit/slogger"
+	httpserver "github.com/LeKovr/go-kit/transport/http"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -28,10 +29,13 @@ func runServer(ctx context.Context, cfg Config, obs *observability.Service) erro
 	}
 	defer grpcConn.Close()
 
-	srv := httpserver.New(cfg.Server)
-	srv.Use(obs.HTTPMiddleware())
-	srv.ServeMux().HandleFunc("/demo", calculatorHTTPHandler(api.NewCalculatorClient(grpcConn), cfg.GRPC.Timeout, logger))
-	return srv.Run(ctx)
+	httpSrv := httpserver.New(cfg.HTTP)
+	httpSrv.Use(obs.HTTPMiddleware())
+	httpSrv.ServeMux().HandleFunc("/demo", calculatorHTTPHandler(api.NewCalculatorClient(grpcConn), cfg.GRPC.Timeout, logger))
+
+	srv := server.New(cfg.Server).WithShutdown(httpSrv.Shutdown)
+
+	return srv.Run(ctx, httpSrv.Run)
 }
 
 func calculatorHTTPHandler(client api.CalculatorClient, timeout time.Duration, logger *slog.Logger) http.HandlerFunc {

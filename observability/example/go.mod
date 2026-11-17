@@ -5,9 +5,10 @@ go 1.25.0
 require (
 	github.com/LeKovr/go-kit/config v0.0.0
 	github.com/LeKovr/go-kit/observability v0.0.0
+	github.com/LeKovr/go-kit/server v0.0.0
+	github.com/LeKovr/go-kit/slogger v0.0.0
 	github.com/LeKovr/go-kit/transport/grpc v0.0.0
 	github.com/LeKovr/go-kit/transport/http v0.0.0
-	github.com/LeKovr/go-kit/slogger v0.0.0
 	github.com/exaring/otelpgx v0.13.0
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/nats-io/nats-server/v2 v2.12.6
@@ -65,6 +66,8 @@ require (
 replace github.com/LeKovr/go-kit/config => ../../config
 
 replace github.com/LeKovr/go-kit/observability => ..
+
+replace github.com/LeKovr/go-kit/server => ../../server
 
 replace github.com/LeKovr/go-kit/slogger => ../../slogger
 

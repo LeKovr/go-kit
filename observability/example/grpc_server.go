@@ -8,8 +8,9 @@ import (
 
 	"github.com/LeKovr/go-kit/observability"
 	"github.com/LeKovr/go-kit/observability/example/api"
-	grpcserver "github.com/LeKovr/go-kit/transport/grpc"
+	"github.com/LeKovr/go-kit/server"
 	"github.com/LeKovr/go-kit/slogger"
+	grpcserver "github.com/LeKovr/go-kit/transport/grpc"
 	"github.com/nats-io/nats.go"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -63,12 +64,14 @@ func runGRPCServer(ctx context.Context, cfg Config, obs *observability.Service) 
 	}
 	defer conn.Close()
 
-	srv := grpcserver.New(cfg.GRPC.Config, grpc.StatsHandler(obs.GRPCServerHandler()))
-	api.RegisterCalculatorServer(srv.Server(), &calculatorServer{
+	grpcSrv := grpcserver.New(cfg.GRPC.Config, grpc.StatsHandler(obs.GRPCServerHandler()))
+	api.RegisterCalculatorServer(grpcSrv.Server(), &calculatorServer{
 		client:  obs.NATSClient(conn),
 		timeout: cfg.NATS.Timeout,
 		logger:  logger,
 	})
 
-	return srv.Run(ctx)
+	srv := server.New(cfg.Server).WithShutdown(grpcSrv.Shutdown)
+
+	return srv.Run(ctx, grpcSrv.Run)
 }

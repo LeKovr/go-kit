@@ -53,14 +53,14 @@ defer restore()
 ```go
 import httpserver "github.com/LeKovr/go-kit/transport/http"
 
-srv := httpserver.New(cfg.Server)
-srv.Use(obs.HTTPMiddleware())
+httpSrv := httpserver.New(cfg.HTTP)
+httpSrv.Use(obs.HTTPMiddleware())
 ```
 
 Можно выбрать эндпоинты, на которых нужно начинать новый trace:
 
 ```go
-srv.Use(obs.HTTPMiddleware(
+httpSrv.Use(obs.HTTPMiddleware(
 	observability.WithPublicEndpointFn(func(r *http.Request) bool {
 		return r.URL.Path == "/public"
 	}),
@@ -103,7 +103,7 @@ client.Transport = obs.HTTPTransport(http.DefaultTransport, obs.HTTPClientTrace(
 ```go
 import grpcserver "github.com/LeKovr/go-kit/transport/grpc"
 
-srv := grpcserver.New(cfg.GRPC,
+grpcSrv := grpcserver.New(cfg.GRPC,
 	grpc.StatsHandler(obs.GRPCServerHandler()),
 )
 ```
