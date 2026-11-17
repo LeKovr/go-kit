@@ -8,7 +8,7 @@ import (
 
 	"github.com/LeKovr/go-kit/observability"
 	"github.com/LeKovr/go-kit/observability/example/api"
-	httpserver "github.com/LeKovr/go-kit/server/http"
+	httpserver "github.com/LeKovr/go-kit/transport/http"
 	"github.com/LeKovr/go-kit/slogger"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"

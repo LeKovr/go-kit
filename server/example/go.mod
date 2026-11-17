@@ -5,8 +5,8 @@ go 1.25.0
 require (
 	github.com/LeKovr/go-kit/config v0.0.0
 	github.com/LeKovr/go-kit/server v0.0.0
-	github.com/LeKovr/go-kit/server/grpc v0.0.0
-	github.com/LeKovr/go-kit/server/http v0.0.0
+	github.com/LeKovr/go-kit/transport/grpc v0.0.0
+	github.com/LeKovr/go-kit/transport/http v0.0.0
 	google.golang.org/grpc v1.83.1
 	google.golang.org/protobuf v1.36.11
 )
@@ -23,8 +23,8 @@ require (
 
 replace github.com/LeKovr/go-kit/server => ..
 
-replace github.com/LeKovr/go-kit/server/http => ../http
+replace github.com/LeKovr/go-kit/transport/http => ../../transport/http
 
-replace github.com/LeKovr/go-kit/server/grpc => ../grpc
+replace github.com/LeKovr/go-kit/transport/grpc => ../../transport/grpc
 
 replace github.com/LeKovr/go-kit/config => ../../config

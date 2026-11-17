@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	github.com/LeKovr/go-kit/config v0.6.1
 	github.com/LeKovr/go-kit/server v0.0.0
-	github.com/LeKovr/go-kit/server/http v0.0.0
+	github.com/LeKovr/go-kit/transport/http v0.0.0
 	github.com/LeKovr/go-kit/slogger v0.15.2
 	github.com/LeKovr/go-kit/ver v0.10.1
 )
@@ -27,4 +27,4 @@ require (
 
 replace github.com/LeKovr/go-kit/server => ../server
 
-replace github.com/LeKovr/go-kit/server/http => ../server/http
+replace github.com/LeKovr/go-kit/transport/http => ../transport/http

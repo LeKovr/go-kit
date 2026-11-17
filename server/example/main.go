@@ -7,8 +7,8 @@ import (
 	"github.com/LeKovr/go-kit/config"
 	"github.com/LeKovr/go-kit/server"
 	"github.com/LeKovr/go-kit/server/example/api"
-	grpcserver "github.com/LeKovr/go-kit/server/grpc"
-	httpserver "github.com/LeKovr/go-kit/server/http"
+	grpcserver "github.com/LeKovr/go-kit/transport/grpc"
+	httpserver "github.com/LeKovr/go-kit/transport/http"
 )
 
 type Config struct {

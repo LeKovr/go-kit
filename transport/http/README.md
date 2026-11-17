@@ -1,15 +1,15 @@
-# go-kit/server/http
+# go-kit/transport/http
 
 [![Go Reference][ref1]][ref2]
  [![GitHub Release][gr1]][gr2]
  [![GoCard][gc1]][gc2]
  [![GitHub license][gl1]][gl2]
 
-[ref1]: https://pkg.go.dev/badge/github.com/LeKovr/go-kit/server/http.svg
-[ref2]: https://pkg.go.dev/github.com/LeKovr/go-kit/server/http
-[gc1]: https://goreportcard.com/badge/github.com/LeKovr/go-kit/server/http
-[gc2]: https://goreportcard.com/report/github.com/LeKovr/go-kit/server/http
-[gr1]: https://img.shields.io/github/v/tag/Lekovr/go-kit?filter=server/http/*
+[ref1]: https://pkg.go.dev/badge/github.com/LeKovr/go-kit/transport/http.svg
+[ref2]: https://pkg.go.dev/github.com/LeKovr/go-kit/transport/http
+[gc1]: https://goreportcard.com/badge/github.com/LeKovr/go-kit/transport/http
+[gc2]: https://goreportcard.com/report/github.com/LeKovr/go-kit/transport/http
+[gr1]: https://img.shields.io/github/v/tag/Lekovr/go-kit?filter=transport/http/*
 [gr2]: https://github.com/LeKovr/go-kit/releases?q=server&expanded=true
 [gl1]: https://img.shields.io/github/license/LeKovr/go-kit.svg
 [gl2]: https://github.com/LeKovr/go-kit/blob/master/LICENSE
@@ -19,7 +19,7 @@
 ## Использование
 
 ```go
-import httpserver "github.com/LeKovr/go-kit/server/http"
+import httpserver "github.com/LeKovr/go-kit/transport/http"
 
 srv := httpserver.New(cfg.Server).WithStatic(files).WithVersion(version)
 srv.Use(middleware)

@@ -1,15 +1,15 @@
-# go-kit/server/grpc
+# go-kit/transport/grpc
 
 [![Go Reference][ref1]][ref2]
  [![GitHub Release][gr1]][gr2]
  [![GoCard][gc1]][gc2]
  [![GitHub license][gl1]][gl2]
 
-[ref1]: https://pkg.go.dev/badge/github.com/LeKovr/go-kit/server/grpc.svg
-[ref2]: https://pkg.go.dev/github.com/LeKovr/go-kit/server/grpc
-[gc1]: https://goreportcard.com/badge/github.com/LeKovr/go-kit/server/grpc
-[gc2]: https://goreportcard.com/report/github.com/LeKovr/go-kit/server/grpc
-[gr1]: https://img.shields.io/github/v/tag/Lekovr/go-kit?filter=server/grpc/*
+[ref1]: https://pkg.go.dev/badge/github.com/LeKovr/go-kit/transport/grpc.svg
+[ref2]: https://pkg.go.dev/github.com/LeKovr/go-kit/transport/grpc
+[gc1]: https://goreportcard.com/badge/github.com/LeKovr/go-kit/transport/grpc
+[gc2]: https://goreportcard.com/report/github.com/LeKovr/go-kit/transport/grpc
+[gr1]: https://img.shields.io/github/v/tag/Lekovr/go-kit?filter=transport/grpc/*
 [gr2]: https://github.com/LeKovr/go-kit/releases?q=server&expanded=true
 [gl1]: https://img.shields.io/github/license/LeKovr/go-kit.svg
 [gl2]: https://github.com/LeKovr/go-kit/blob/master/LICENSE
@@ -19,7 +19,7 @@
 ## Использование
 
 ```go
-import grpcserver "github.com/LeKovr/go-kit/server/grpc"
+import grpcserver "github.com/LeKovr/go-kit/transport/grpc"
 
 srv := grpcserver.New(cfg.GRPC)
 api.RegisterMyServiceServer(srv.Server(), implementation)

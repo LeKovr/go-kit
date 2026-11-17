@@ -42,7 +42,7 @@ import (
 
 	"github.com/LeKovr/go-kit/config"
 	"github.com/LeKovr/go-kit/server"
-	httpserver "github.com/LeKovr/go-kit/server/http"
+	httpserver "github.com/LeKovr/go-kit/transport/http"
 	"github.com/LeKovr/go-kit/slogger"
 	"github.com/LeKovr/go-kit/ver"
 )
