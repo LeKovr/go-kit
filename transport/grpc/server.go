@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net"
 	"sync"
-	"sync/atomic"
 
 	"google.golang.org/grpc"
 )
@@ -19,24 +18,22 @@ type Config struct {
 
 // Service owns a gRPC server and its listener. Configure and register before Run.
 type Service struct {
-	config        Config
-	server        *grpc.Server
-	listener      net.Listener
-	started       atomic.Bool
-	runCalled     atomic.Bool
-	stopOnce      sync.Once
-	stopRequested chan struct{}
-	stopCtx       context.Context
-	stopCancel    context.CancelFunc
-	stopImmediate bool
-	done          chan struct{}
-	stopErr       error
+	config   Config
+	server   *grpc.Server
+	listener net.Listener
+
+	mu       sync.Mutex
+	runCtx   context.Context // Set once, by the first Run.
+	stopping bool
+	drained  chan struct{}
+	done     chan struct{}
+	stopErr  error
 }
 
 // New creates a server without opening resources. Native options configure TLS,
 // interceptors, stats handlers and other gRPC behavior.
 func New(cfg Config, opts ...grpc.ServerOption) *Service {
-	return &Service{config: cfg, server: grpc.NewServer(opts...), stopRequested: make(chan struct{}), done: make(chan struct{})}
+	return &Service{config: cfg, server: grpc.NewServer(opts...), done: make(chan struct{})}
 }
 
 // Server exposes the native server for service registration before Run.
@@ -50,29 +47,50 @@ func (srv *Service) WithListener(listener net.Listener) *Service {
 
 // Run serves once. Context cancellation forces a stop; use Shutdown to drain RPCs.
 func (srv *Service) Run(ctx context.Context) (err error) {
-	if !srv.runCalled.CompareAndSwap(false, true) {
+	srv.mu.Lock()
+	if srv.runCtx != nil {
+		srv.mu.Unlock()
 		return errors.New("gRPC service already run")
 	}
 
-	if !srv.started.CompareAndSwap(false, true) {
+	srv.runCtx = ctx
+	stopping := srv.stopping
+	srv.mu.Unlock()
+
+	if stopping {
 		<-srv.done
 		return srv.stopErr
 	}
 
 	var listener *ownedListener
-
 	if srv.listener != nil {
 		listener = &ownedListener{Listener: srv.listener}
 	}
+
+	// Keep cancellation active while cleanup waits for an in-flight Shutdown.
+	stop := context.AfterFunc(ctx, srv.server.Stop)
+	defer stop()
+
 	defer func() {
-		srv.server.Stop()
+		srv.mu.Lock()
+		drained := srv.drained
+		srv.stopping = true
+		srv.mu.Unlock()
+
+		if drained != nil {
+			<-drained
+		} else {
+			srv.server.Stop()
+		}
+
+		if errors.Is(err, grpc.ErrServerStopped) && (drained != nil || ctx.Err() != nil) {
+			err = nil // Shutdown or cancellation won the race with Serve.
+		}
 
 		if listener != nil {
 			srv.stopErr = errors.Join(srv.stopErr, listener.Close())
 		}
 
-		srv.beginShutdown(context.Background(), true)
-		srv.stopCancel()
 		err = errors.Join(err, srv.stopErr)
 		close(srv.done)
 	}()
@@ -81,108 +99,53 @@ func (srv *Service) Run(ctx context.Context) (err error) {
 		return nil
 	}
 
-	select {
-	case <-srv.stopRequested:
-		return nil
-	default:
-	}
-
 	if listener == nil {
-		ln, listenErr := net.Listen("tcp", srv.config.Listen)
-		if listenErr != nil {
-			return fmt.Errorf("gRPC listen: %w", listenErr)
+		ln, err := net.Listen("tcp", srv.config.Listen)
+		if err != nil {
+			return fmt.Errorf("gRPC listen: %w", err)
 		}
 
 		listener = &ownedListener{Listener: ln}
 	}
 
-	select {
-	case <-srv.stopRequested:
-		return nil
-	default:
+	if err := srv.server.Serve(listener); err != nil {
+		return fmt.Errorf("gRPC serve: %w", err)
 	}
 
-	var stopping atomic.Bool
-
-	served := make(chan error, 1)
-	go func() {
-		serveErr := srv.server.Serve(listener)
-		if stopping.Load() && (errors.Is(serveErr, grpc.ErrServerStopped) || errors.Is(serveErr, net.ErrClosed)) {
-			serveErr = nil
-		}
-		if serveErr != nil {
-			serveErr = fmt.Errorf("gRPC serve: %w", serveErr)
-		}
-		served <- serveErr
-	}()
-	select {
-	case serveErr := <-served:
-		return serveErr
-	case <-ctx.Done():
-	case <-srv.stopRequested:
-	}
-
-	stopping.Store(true)
-	srv.beginShutdown(context.Background(), true)
-	// Run cancellation also interrupts an explicit Shutdown already in progress.
-	stopCancel := context.AfterFunc(ctx, srv.stopCancel)
-	defer stopCancel()
-
-	srv.stopErr = srv.shutdown()
-
-	return <-served
+	return nil
 }
 
-func (srv *Service) shutdown() error {
-	if srv.stopImmediate {
-		srv.server.Stop()
-		return nil
-	}
-
-	if err := srv.stopCtx.Err(); err != nil {
-		srv.server.Stop()
-		return fmt.Errorf("gRPC shutdown: %w", err)
-	}
-
-	stopped := make(chan struct{})
-
-	go func() { srv.server.GracefulStop(); close(stopped) }()
-
-	select {
-	case <-stopped:
-		return nil
-	case <-srv.stopCtx.Done():
-		srv.server.Stop()
-		// GracefulStop may still be waiting for handlers that ignore cancellation.
-		<-stopped
-
-		return fmt.Errorf("gRPC shutdown: %w", srv.stopCtx.Err())
-	}
-}
-
-// Shutdown stops admission and drains active work using ctx, without a new timeout.
-// It is safe before Run, during startup and on repeated calls. A call before Run
-// closes a supplied listener and prevents Run from starting. An expired context
-// requests forced closure; Run still owns and waits for resource cleanup.
+// Shutdown stops admission and drains active RPCs within ctx. Before Run it
+// closes a supplied listener and prevents serving.
+// Later calls only wait for cleanup within their own context.
 func (srv *Service) Shutdown(ctx context.Context) error {
-	select {
-	case <-srv.done:
-		return srv.stopErr
-	default:
-	}
+	srv.mu.Lock()
+	if !srv.stopping {
+		srv.stopping = true
 
-	srv.beginShutdown(ctx, false)
+		if srv.runCtx == nil {
+			srv.mu.Unlock()
+			srv.server.Stop()
 
-	if srv.started.CompareAndSwap(false, true) {
-		srv.server.Stop()
+			if srv.listener != nil {
+				srv.stopErr = srv.listener.Close()
+			}
 
-		if srv.listener != nil {
-			srv.stopErr = srv.listener.Close()
+			close(srv.done)
+			return srv.stopErr
 		}
 
-		srv.stopCancel()
-		close(srv.done)
+		if srv.runCtx.Err() == nil {
+			srv.drained = make(chan struct{})
+
+			go func() {
+				defer close(srv.drained)
+				srv.stopErr = srv.drain(ctx)
+			}()
+		}
 	}
+
+	srv.mu.Unlock()
 
 	select {
 	case <-srv.done:
@@ -194,17 +157,29 @@ func (srv *Service) Shutdown(ctx context.Context) error {
 	case <-srv.done:
 		return srv.stopErr
 	case <-ctx.Done():
-		srv.stopCancel()
 		return ctx.Err()
 	}
 }
 
-func (srv *Service) beginShutdown(ctx context.Context, immediate bool) {
-	srv.stopOnce.Do(func() {
-		srv.stopCtx, srv.stopCancel = context.WithCancel(ctx)
-		srv.stopImmediate = immediate
-		close(srv.stopRequested)
-	})
+// drain lets native gRPC finish active RPCs until either context is canceled.
+func (srv *Service) drain(ctx context.Context) error {
+	if ctx.Err() != nil {
+		srv.server.Stop()
+	} else {
+		force := context.AfterFunc(ctx, srv.server.Stop)
+		srv.server.GracefulStop()
+		force()
+	}
+
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("gRPC shutdown: %w", err)
+	}
+
+	if srv.runCtx.Err() != nil {
+		return fmt.Errorf("gRPC shutdown: %w", context.Canceled)
+	}
+
+	return nil
 }
 
 // ownedListener preserves the first Close error without closing twice.
