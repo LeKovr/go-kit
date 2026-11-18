@@ -14,7 +14,7 @@ import (
 )
 
 func TestExplicitShutdownDrainsWithCallerDeadline(t *testing.T) {
-	for _, scenario := range []string{"graceful", "deadline", "run cancellation"} {
+	for _, scenario := range []string{"graceful", "deadline", "run cancellation", "second shutdown deadline"} {
 		t.Run(scenario, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				serverConn, clientConn := net.Pipe()
@@ -55,7 +55,7 @@ func TestExplicitShutdownDrainsWithCallerDeadline(t *testing.T) {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 				defer cancel()
 
-				if scenario == "run cancellation" {
+				if scenario == "run cancellation" || scenario == "second shutdown deadline" {
 					ctx = context.Background()
 				}
 
@@ -75,23 +75,33 @@ func TestExplicitShutdownDrainsWithCallerDeadline(t *testing.T) {
 				default:
 				}
 
-				if scenario == "graceful" {
-					close(release)
-				} else if scenario == "run cancellation" {
-					cancelRun()
+				if scenario == "second shutdown deadline" {
+					shortCtx, cancelShort := context.WithTimeout(context.Background(), time.Millisecond)
+					defer cancelShort()
+
+					if err := srv.Shutdown(shortCtx); !errors.Is(err, context.DeadlineExceeded) {
+						t.Fatalf("second Shutdown = %v, want deadline exceeded", err)
+					}
+
+					synctest.Wait()
+					if err := requestCtx.Err(); err != nil {
+						t.Fatalf("second Shutdown canceled active request: %v", err)
+					}
 				}
 
-				wantErr := context.DeadlineExceeded
-				if scenario == "run cancellation" {
+				var wantErr error
+				switch scenario {
+				case "graceful", "second shutdown deadline":
+					close(release)
+				case "run cancellation":
+					cancelRun()
 					wantErr = context.Canceled
+				case "deadline":
+					wantErr = context.DeadlineExceeded
 				}
 
 				shutdownErr, runErr := <-shutdownDone, <-runDone
-				if scenario == "graceful" {
-					if shutdownErr != nil || runErr != nil {
-						t.Fatalf("shutdown=%v, run=%v", shutdownErr, runErr)
-					}
-				} else if !errors.Is(shutdownErr, wantErr) || !errors.Is(runErr, wantErr) {
+				if !errors.Is(shutdownErr, wantErr) || !errors.Is(runErr, wantErr) {
 					t.Fatalf("shutdown=%v, run=%v", shutdownErr, runErr)
 				}
 

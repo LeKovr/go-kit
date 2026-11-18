@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"os"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -57,15 +56,15 @@ type Service struct {
 	mux             *http.ServeMux
 	handlers        []Handler
 	accessLogWriter io.Writer
-	started         atomic.Bool
-	runCalled       atomic.Bool
-	stopOnce        sync.Once
-	stopRequested   chan struct{}
-	stopCtx         context.Context
-	stopCancel      context.CancelFunc
-	stopImmediate   bool
-	done            chan struct{}
-	stopErr         error
+
+	mu          sync.Mutex
+	runCalled   bool
+	stopping    bool
+	httpServer  *http.Server // Published after startup, before Serve.
+	cancelDrain context.CancelFunc
+	drained     chan error
+	done        chan struct{}
+	stopErr     error
 }
 
 // AccessLogDisabled holds access_log value for access logging disabling.
@@ -74,10 +73,9 @@ const AccessLogDisabled = "-"
 // New returns *Service.
 func New(cfg Config) *Service {
 	return &Service{
-		config:        cfg,
-		mux:           http.NewServeMux(),
-		stopRequested: make(chan struct{}),
-		done:          make(chan struct{}),
+		config: cfg,
+		mux:    http.NewServeMux(),
+		done:   make(chan struct{}),
 	}
 }
 
@@ -113,11 +111,17 @@ func (srv *Service) ServeMux() *http.ServeMux {
 // Run serves HTTP(S) once. Context cancellation forces closure; use Shutdown to drain requests.
 // The listener passed to WithListener is closed on return, including on error.
 func (srv *Service) Run(ctx context.Context) (err error) {
-	if !srv.runCalled.CompareAndSwap(false, true) {
+	srv.mu.Lock()
+	if srv.runCalled {
+		srv.mu.Unlock()
 		return errors.New("HTTP service already run")
 	}
 
-	if !srv.started.CompareAndSwap(false, true) {
+	srv.runCalled = true
+	stopping := srv.stopping
+	srv.mu.Unlock()
+
+	if stopping {
 		<-srv.done
 		return srv.stopErr
 	}
@@ -133,20 +137,12 @@ func (srv *Service) Run(ctx context.Context) (err error) {
 		}
 
 		srv.stopErr = errors.Join(srv.stopErr, srv.closeAccessLog())
-		srv.beginShutdown(context.Background(), true)
-		srv.stopCancel()
 		err = errors.Join(err, srv.stopErr)
 		close(srv.done)
 	}()
 
 	if ctx.Err() != nil {
 		return nil
-	}
-
-	select {
-	case <-srv.stopRequested:
-		return nil
-	default:
 	}
 
 	if listener == nil {
@@ -181,95 +177,93 @@ func (srv *Service) Run(ctx context.Context) (err error) {
 	if srv.config.TLS.NoCheckCertificate {
 		hs.TLSConfig = &tls.Config{InsecureSkipVerify: true}
 	}
-	defer func() {
-		cancelRequests()
-
-		srv.stopErr = errors.Join(srv.stopErr, hs.Close())
-	}()
-
-	select {
-	case <-srv.stopRequested:
-		return nil
-	default:
-	}
-
-	var stopping atomic.Bool
-
-	served := make(chan error, 1)
-	go func() {
-		var serveErr error
-		if srv.config.TLS.CertFile != "" {
-			serveErr = hs.ServeTLS(listener, srv.config.TLS.CertFile, srv.config.TLS.KeyFile)
-		} else {
-			serveErr = hs.Serve(listener)
-		}
-		if stopping.Load() && (errors.Is(serveErr, http.ErrServerClosed) || errors.Is(serveErr, net.ErrClosed)) {
-			serveErr = nil
-		}
-		if serveErr != nil {
-			serveErr = fmt.Errorf("HTTP serve: %w", serveErr)
-		}
-		served <- serveErr
-	}()
-	var serveErr error
-	serveDone := false
-	select {
-	case serveErr = <-served:
-		serveDone = true
-	case <-ctx.Done():
-	case <-srv.stopRequested:
-	}
-
-	stopping.Store(true)
-	srv.beginShutdown(context.Background(), true)
-	// Run cancellation also interrupts an explicit Shutdown already in progress.
-	stopCancel := context.AfterFunc(ctx, srv.stopCancel)
-	defer stopCancel()
-
-	srv.stopErr = srv.shutdown(hs, cancelRequests)
-
-	if !serveDone {
-		serveErr = <-served
-	}
-
-	return serveErr
-}
-
-func (srv *Service) shutdown(hs *http.Server, cancelRequests context.CancelFunc) error {
-	if srv.stopImmediate {
+	closeServer := sync.OnceValue(func() error {
 		cancelRequests()
 		return hs.Close()
+	})
+	defer func() { srv.stopErr = errors.Join(srv.stopErr, closeServer()) }()
+
+	srv.mu.Lock()
+	if srv.stopping {
+		srv.mu.Unlock()
+		return nil
 	}
 
-	if err := hs.Shutdown(srv.stopCtx); err != nil {
-		cancelRequests()
-		return errors.Join(fmt.Errorf("HTTP shutdown: %w", err), hs.Close())
+	srv.httpServer = hs
+	srv.mu.Unlock()
+
+	stop := context.AfterFunc(ctx, func() {
+		srv.mu.Lock()
+		srv.stopping = true
+		cancel := srv.cancelDrain
+		srv.mu.Unlock()
+
+		if cancel != nil {
+			cancel()
+		} else {
+			closeServer()
+		}
+	})
+	defer stop()
+
+	if srv.config.TLS.CertFile != "" {
+		err = hs.ServeTLS(listener, srv.config.TLS.CertFile, srv.config.TLS.KeyFile)
+	} else {
+		err = hs.Serve(listener)
 	}
 
-	return nil
+	srv.mu.Lock()
+	stopping = srv.stopping
+	srv.httpServer = nil
+	srv.stopping = true
+	drained := srv.drained
+	srv.mu.Unlock()
+
+	// Serve returns as soon as Shutdown closes the listener. Keep requests
+	// and their access log alive until Shutdown finishes.
+	if drained != nil {
+		if drainErr := <-drained; drainErr != nil {
+			srv.stopErr = fmt.Errorf("HTTP shutdown: %w", drainErr)
+		}
+	}
+
+	if stopping && (errors.Is(err, http.ErrServerClosed) || errors.Is(err, net.ErrClosed)) {
+		return nil
+	}
+
+	return fmt.Errorf("HTTP serve: %w", err)
 }
 
-// Shutdown stops admission and drains active work using ctx, without a new timeout.
-// It is safe before Run, during startup and on repeated calls. A call before Run
-// closes a supplied listener and prevents Run from starting. An expired context
-// requests forced closure; Run still owns and waits for resource cleanup.
+// Shutdown stops admission and drains active requests within ctx. Before Run it
+// closes a supplied listener and prevents serving. Later calls only wait for cleanup within their own context.
 func (srv *Service) Shutdown(ctx context.Context) error {
-	select {
-	case <-srv.done:
-		return srv.stopErr
-	default:
-	}
+	srv.mu.Lock()
+	if !srv.stopping {
+		srv.stopping = true
 
-	srv.beginShutdown(ctx, false)
+		if !srv.runCalled {
+			srv.mu.Unlock()
+			if srv.listener != nil {
+				srv.stopErr = srv.listener.Close()
+			}
 
-	if srv.started.CompareAndSwap(false, true) {
-		if srv.listener != nil {
-			srv.stopErr = srv.listener.Close()
+			close(srv.done)
+			return srv.stopErr
 		}
 
-		srv.stopCancel()
-		close(srv.done)
+		if hs := srv.httpServer; hs != nil {
+			drainCtx, cancel := context.WithCancel(ctx)
+			srv.cancelDrain = cancel
+			srv.drained = make(chan error, 1)
+
+			go func() {
+				defer cancel()
+				srv.drained <- hs.Shutdown(drainCtx)
+			}()
+		}
 	}
+
+	srv.mu.Unlock()
 
 	select {
 	case <-srv.done:
@@ -281,17 +275,8 @@ func (srv *Service) Shutdown(ctx context.Context) error {
 	case <-srv.done:
 		return srv.stopErr
 	case <-ctx.Done():
-		srv.stopCancel()
 		return ctx.Err()
 	}
-}
-
-func (srv *Service) beginShutdown(ctx context.Context, immediate bool) {
-	srv.stopOnce.Do(func() {
-		srv.stopCtx, srv.stopCancel = context.WithCancel(ctx)
-		srv.stopImmediate = immediate
-		close(srv.stopRequested)
-	})
 }
 
 // ownedListener preserves the first Close error without closing twice.
