@@ -9,16 +9,19 @@ import (
 )
 
 // PGXTracer returns instrumentation for pgx ConnConfig.Tracer, set before connecting.
-// Service providers are used without OTel globals; SQL text and parameters are omitted.
-func (svc Service) PGXTracer() *otelpgx.Tracer {
-	return otelpgx.NewTracer(
-		otelpgx.WithTracerProvider(svc.tracerProviderOrNoop()),
-		otelpgx.WithMeterProvider(svc.meterProviderOrNoop()),
-		otelpgx.WithDisableSQLStatementInAttributes(),
+// Options override the naming defaults. Service providers always take precedence.
+func (svc Service) PGXTracer(opts ...otelpgx.Option) *otelpgx.Tracer {
+	options := []otelpgx.Option{
 		otelpgx.WithQuerySpanNamePrefix(),
 		otelpgx.WithSpanNameCtxFunc(pgxSpanName),
 		otelpgx.WithMetricOperationName(pgxSpanName),
+	}
+	options = append(options, opts...)
+	options = append(options,
+		otelpgx.WithTracerProvider(svc.tracerProviderOrNoop()),
+		otelpgx.WithMeterProvider(svc.meterProviderOrNoop()),
 	)
+	return otelpgx.NewTracer(options...)
 }
 
 // RecordPGXPoolStats registers pool metrics once per pool, owned by the caller.

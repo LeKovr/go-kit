@@ -36,6 +36,10 @@ func TestPGXTracerUsesServiceProvidersAndParent(t *testing.T) {
 	if span.Name != "query SELECT" || span.SpanKind != trace.SpanKindClient || !span.Parent.Equal(parent.SpanContext()) || span.SpanContext.TraceID() != parent.SpanContext().TraceID() {
 		t.Fatalf("incorrect query span or parent: %+v", span)
 	}
+	attrs := attribute.NewSet(span.Attributes...)
+	if sql, ok := attrs.Value("db.query.text"); !ok || sql.AsString() != "SELECT $1" || attrs.HasValue(otelpgx.QueryParametersKey) {
+		t.Fatalf("unexpected query attributes: %v", attrs.ToSlice())
+	}
 	if got := pgxTestDurationCount(t, telemetry.reader); got != 1 {
 		t.Fatalf("operation duration count = %d, want 1", got)
 	}
@@ -166,7 +170,7 @@ func TestPGXTracerOmitsSQLAndParameters(t *testing.T) {
 			telemetry := newTestTelemetry(t, true, false)
 			ctx, parent := telemetry.service.Tracer("test-parent").Start(t.Context(), "parent")
 			defer parent.End()
-			tracer := telemetry.service.PGXTracer()
+			tracer := telemetry.service.PGXTracer(otelpgx.WithDisableSQLStatementInAttributes())
 			query := pgx.TraceQueryStartData{SQL: tt.sql, Args: []any{"private-argument"}}
 			queryCtx := tracer.TraceQueryStart(ctx, nil, query)
 			tracer.TraceQueryEnd(queryCtx, nil, pgx.TraceQueryEndData{})

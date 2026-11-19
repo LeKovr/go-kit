@@ -55,7 +55,7 @@ func runNATSWorker(ctx context.Context, cfg Config, obs *observability.Service) 
 	if err != nil {
 		return err
 	}
-	poolCfg.ConnConfig.Tracer = obs.PGXTracer()
+	poolCfg.ConnConfig.Tracer = obs.PGXTracer(otelpgx.WithDisableSQLStatementInAttributes())
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		return err

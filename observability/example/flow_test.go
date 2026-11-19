@@ -16,6 +16,7 @@ import (
 
 	"github.com/LeKovr/go-kit/observability"
 	"github.com/LeKovr/go-kit/observability/example/api"
+	"github.com/exaring/otelpgx"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
@@ -81,7 +82,7 @@ func TestCalculationFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	poolConfig.ConnConfig.Tracer = services["nats-worker"].PGXTracer()
+	poolConfig.ConnConfig.Tracer = services["nats-worker"].PGXTracer(otelpgx.WithDisableSQLStatementInAttributes())
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
 		t.Fatal(err)
