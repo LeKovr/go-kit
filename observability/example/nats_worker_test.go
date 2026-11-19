@@ -11,9 +11,18 @@ import (
 )
 
 func TestNATSDrain(t *testing.T) {
-	for _, scenario := range []string{"graceful", "timeout", "zero"} {
+	for _, scenario := range []string{"graceful", "rejected reply", "timeout", "zero"} {
 		t.Run(scenario, func(t *testing.T) {
-			broker, err := natsserver.NewServer(&natsserver.Options{Host: "127.0.0.1", Port: -1, NoLog: true, NoSigs: true, NoSystemAccount: true})
+			publishReply := scenario == "graceful" || scenario == "rejected reply"
+			opts := &natsserver.Options{Host: "127.0.0.1", Port: -1, NoLog: true, NoSigs: true, NoSystemAccount: true}
+			if scenario == "rejected reply" {
+				opts.NoAuthUser = "worker"
+				opts.Users = []*natsserver.User{{
+					Username:    "worker",
+					Permissions: &natsserver.Permissions{Publish: &natsserver.SubjectPermission{Deny: []string{"completed"}}},
+				}}
+			}
+			broker, err := natsserver.NewServer(opts)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -27,6 +36,12 @@ func TestNATSDrain(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer client.Close()
+
+			completed, err := client.SubscribeSync("completed")
+			if err != nil {
+				t.Fatal(err)
+			}
+
 			grace := time.Second
 			if scenario == "timeout" {
 				grace = 30 * time.Millisecond
@@ -43,13 +58,22 @@ func TestNATSDrain(t *testing.T) {
 			done := make(chan error, 1)
 			go func() {
 				done <- runNATSSubscription(ctx, NATSConfig{URL: broker.ClientURL(), Timeout: time.Second, GracePeriod: grace}, func(callbackCtx context.Context, conn *nats.Conn) nats.MsgHandler {
+					if scenario == "rejected reply" {
+						// Deliver the broker error only after Close, independently of scheduling.
+						closed := conn.StatusChanged(nats.CLOSED)
+						report := conn.ErrorHandler()
+						conn.SetErrorHandler(func(nc *nats.Conn, sub *nats.Subscription, err error) {
+							<-closed
+							report(nc, sub, err)
+						})
+					}
 					workerConn <- conn
 					return func(msg *nats.Msg) {
 						close(started)
 						if callbackCtx.Value(key{}) != "value" {
 							handlerError <- errors.New("context value lost")
 						}
-						if scenario == "graceful" {
+						if publishReply {
 							<-released
 							if callbackCtx.Err() != nil {
 								handlerError <- errors.New("callback canceled during drain")
@@ -66,7 +90,7 @@ func TestNATSDrain(t *testing.T) {
 				})
 			}()
 			conn := <-workerConn
-			waitCondition(t, func() bool { return broker.NumSubscriptions() == 1 })
+			waitCondition(t, func() bool { return broker.NumSubscriptions() == 2 })
 			if err := client.Publish(natsSubject, []byte("calculate")); err != nil {
 				t.Fatal(err)
 			}
@@ -79,8 +103,8 @@ func TestNATSDrain(t *testing.T) {
 				t.Fatal("callback did not start")
 			}
 			cancel()
-			if scenario == "graceful" {
-				waitCondition(t, conn.IsDraining)
+			if publishReply {
+				waitCondition(t, func() bool { return broker.NumSubscriptions() == 1 })
 			} else {
 				select {
 				case <-canceled:
@@ -96,7 +120,11 @@ func TestNATSDrain(t *testing.T) {
 			close(released)
 			select {
 			case err := <-done:
-				if scenario == "timeout" {
+				if scenario == "rejected reply" {
+					if !errors.Is(err, nats.ErrPermissionViolation) {
+						t.Fatalf("rejected publication error = %v", err)
+					}
+				} else if scenario == "timeout" {
 					if !errors.Is(err, context.DeadlineExceeded) {
 						t.Fatalf("timeout error = %v", err)
 					}
@@ -111,6 +139,17 @@ func TestNATSDrain(t *testing.T) {
 				t.Fatal(err)
 			default:
 			}
+			if scenario == "graceful" {
+				msg, err := completed.NextMsg(time.Second)
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				if string(msg.Data) != "ok" {
+					t.Fatalf("completion = %q, want ok", msg.Data)
+				}
+			}
+
 			if !conn.IsClosed() {
 				t.Fatal("connection left open")
 			}

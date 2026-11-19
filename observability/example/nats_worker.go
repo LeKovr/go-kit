@@ -94,14 +94,10 @@ func runNATSSubscription(ctx context.Context, cfg NATSConfig, handler func(conte
 	var draining atomic.Bool
 	conn, err := nats.Connect(cfg.URL,
 		nats.Name(application+"-nats-worker"), nats.Timeout(cfg.Timeout),
-		nats.DrainTimeout(cfg.GracePeriod),
 		nats.ClosedHandler(func(*nats.Conn) { close(closed) }),
 		nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, err error) {
 			logger.Error("NATS asynchronous error", "err", err)
 			if draining.Load() {
-				if errors.Is(err, nats.ErrDrainTimeout) {
-					err = errors.Join(err, context.DeadlineExceeded)
-				}
 				select {
 				case drainErrors <- err:
 				default:
@@ -125,7 +121,7 @@ func runNATSSubscription(ctx context.Context, cfg NATSConfig, handler func(conte
 		callbacks.Wait()
 	}()
 	handle := handler(callbackCtx, conn)
-	_, err = conn.QueueSubscribe(natsSubject, "demo-workers", func(msg *nats.Msg) {
+	sub, err := conn.QueueSubscribe(natsSubject, "demo-workers", func(msg *nats.Msg) {
 		mu.Lock()
 		if stopping {
 			mu.Unlock()
@@ -139,6 +135,9 @@ func runNATSSubscription(ctx context.Context, cfg NATSConfig, handler func(conte
 	if err != nil {
 		return err
 	}
+	drained := make(chan struct{})
+	sub.SetClosedHandler(func(string) { close(drained) })
+
 	if err := conn.FlushTimeout(cfg.Timeout); err != nil {
 		return err
 	}
@@ -152,21 +151,36 @@ func runNATSSubscription(ctx context.Context, cfg NATSConfig, handler func(conte
 		return nil
 	}
 	draining.Store(true)
-	timer := time.NewTimer(cfg.GracePeriod)
-	defer timer.Stop()
-	if err := conn.Drain(); err != nil {
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.WithoutCancel(ctx), cfg.GracePeriod)
+	defer cancelShutdown()
+
+	// Drain our subscription so forced Close cannot race a connection-wide drain.
+	if err := sub.Drain(); err != nil {
 		return fmt.Errorf("NATS drain: %w", err)
 	}
 	select {
+	case <-drained:
 	case <-closed:
-		select {
-		case err := <-drainErrors:
-			return fmt.Errorf("NATS drain: %w", err)
-		default:
-			return nil
-		}
-	case <-timer.C:
-		return fmt.Errorf("NATS drain: %w", context.DeadlineExceeded)
+		return errors.New("NATS connection closed during drain")
+	case <-shutdownCtx.Done():
+		return fmt.Errorf("NATS drain: %w", shutdownCtx.Err())
+	}
+	if err := conn.FlushWithContext(shutdownCtx); err != nil {
+		return fmt.Errorf("NATS flush: %w", err)
+	}
+
+	// NATS dispatches queued asynchronous errors before the closed handler.
+	conn.Close()
+	select {
+	case <-closed:
+	case <-shutdownCtx.Done():
+		return fmt.Errorf("NATS drain: %w", shutdownCtx.Err())
+	}
+	select {
+	case err := <-drainErrors:
+		return fmt.Errorf("NATS drain: %w", err)
+	default:
+		return nil
 	}
 }
 
