@@ -17,8 +17,10 @@ import (
 
 func TestRegistrationAndNativeOptions(t *testing.T) {
 	ln := testListener(t)
+
 	var calls atomic.Int32
-	srv := New(Config{GracePeriod: time.Second}, grpc.UnaryInterceptor(func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+
+	srv := New(Config{}, grpc.UnaryInterceptor(func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		calls.Add(1)
 		return handler(ctx, req)
 	})).WithListener(ln)
@@ -46,96 +48,74 @@ func TestRegistrationAndNativeOptions(t *testing.T) {
 	}
 }
 
-func TestShutdown(t *testing.T) {
-	for _, scenario := range []string{"graceful", "timeout", "zero"} {
-		t.Run(scenario, func(t *testing.T) {
-			ln := testListener(t)
-			entered, closing := make(chan struct{}), make(chan struct{})
-			release := make(chan struct{})
-			grace := time.Second
-			if scenario == "timeout" {
-				grace = 20 * time.Millisecond
-			}
-			if scenario == "zero" {
-				grace = 0
-			}
-			srv := New(Config{GracePeriod: grace}).WithListener(&signalListener{Listener: ln, closing: closing, entered: entered})
-			started, canceled := make(chan struct{}), make(chan struct{})
-			pb.RegisterHealthServer(srv.Server(), &checkServer{check: func(ctx context.Context) (*pb.HealthCheckResponse, error) {
-				close(started)
-				select {
-				case <-release:
-					return &pb.HealthCheckResponse{Status: pb.HealthCheckResponse_SERVING}, nil
-				case <-ctx.Done():
-					close(canceled)
-					return nil, ctx.Err()
-				}
-			}})
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			done := make(chan error, 1)
-			go func() { done <- srv.Run(ctx) }()
-			<-entered
-			if err := srv.Run(ctx); err == nil {
-				t.Fatal("concurrent Run succeeded")
-			}
-			rpcDone := make(chan error, 1)
-			client := healthClient(t, ln)
-			rpcCtx, rpcCancel := context.WithTimeout(context.Background(), 3*time.Second)
-			defer rpcCancel()
-			go func() {
-				_, err := client.Check(rpcCtx, &pb.HealthCheckRequest{}, grpc.WaitForReady(true))
-				rpcDone <- err
-			}()
-			select {
-			case <-started:
-			case <-rpcCtx.Done():
-				t.Fatal("RPC did not start")
-			}
-			cancel()
-			<-closing
-			if scenario == "graceful" {
-				select {
-				case <-canceled:
-					t.Fatal("RPC canceled during drain")
-				default:
-				}
-				select {
-				case err := <-done:
-					t.Fatalf("returned before active RPC: %v", err)
-				default:
-				}
-				close(release)
-			}
-			select {
-			case err := <-done:
-				if scenario == "timeout" {
-					if !errors.Is(err, context.DeadlineExceeded) {
-						t.Fatalf("error = %v", err)
-					}
-				} else if err != nil {
-					t.Fatal(err)
-				}
-			case <-rpcCtx.Done():
-				t.Fatal("Run did not stop")
-			}
-			err := <-rpcDone
-			if (err == nil) != (scenario == "graceful") {
-				t.Fatalf("RPC error = %v", err)
-			}
-			if scenario != "graceful" {
-				select {
-				case <-canceled:
-				case <-rpcCtx.Done():
-					t.Fatal("handler not canceled")
-				}
-			}
-		})
+func TestRunCancellationStopsRPC(t *testing.T) {
+	ln := testListener(t)
+	entered, closing := make(chan struct{}), make(chan struct{})
+	srv := New(Config{}).WithListener(&signalListener{Listener: ln, entered: entered, closing: closing})
+	started, canceled := make(chan struct{}), make(chan struct{})
+
+	pb.RegisterHealthServer(srv.Server(), &checkServer{check: func(ctx context.Context) (*pb.HealthCheckResponse, error) {
+		close(started)
+		<-ctx.Done()
+		close(canceled)
+
+		return nil, ctx.Err()
+	}})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() { done <- srv.Run(ctx) }()
+
+	<-entered
+
+	if err := srv.Run(ctx); err == nil {
+		t.Fatal("concurrent Run succeeded")
+	}
+
+	client := healthClient(t, ln)
+
+	rpcCtx, rpcCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer rpcCancel()
+
+	rpcDone := make(chan error, 1)
+
+	go func() {
+		_, err := client.Check(rpcCtx, &pb.HealthCheckRequest{}, grpc.WaitForReady(true))
+		rpcDone <- err
+	}()
+
+	select {
+	case <-started:
+	case <-rpcCtx.Done():
+		t.Fatal("RPC did not start")
+	}
+
+	cancel()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-rpcCtx.Done():
+		t.Fatal("Run did not stop")
+	}
+
+	select {
+	case <-canceled:
+	case <-rpcCtx.Done():
+		t.Fatal("handler not canceled")
+	}
+
+	if err := <-rpcDone; err == nil {
+		t.Fatal("RPC succeeded after forced stop")
 	}
 }
 
 func TestStartupAndCleanup(t *testing.T) {
-	for _, scenario := range []string{"canceled", "negative", "bind"} {
+	for _, scenario := range []string{"canceled", "bind"} {
 		t.Run(scenario, func(t *testing.T) {
 			ln := testListener(t)
 			ctx, cancel := context.WithCancel(context.Background())
@@ -144,9 +124,7 @@ func TestStartupAndCleanup(t *testing.T) {
 			if scenario == "canceled" {
 				cancel()
 			}
-			if scenario == "negative" {
-				cfg.GracePeriod = -1
-			}
+
 			srv := New(cfg)
 			if scenario != "bind" {
 				srv.WithListener(ln)

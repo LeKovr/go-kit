@@ -16,12 +16,15 @@ func TestAuditGracefulShutdownWaitsForHandler(t *testing.T) {
 	}
 	started := make(chan struct{})
 	release := make(chan struct{})
-	srv := New(Config{GracePeriod: time.Second}).WithListener(ln)
+	srv := New(Config{}).WithListener(ln)
 	srv.ServeMux().HandleFunc("/", func(http.ResponseWriter, *http.Request) {
 		close(started)
 		<-release
 	})
+
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	done := make(chan error, 1)
 	go func() { done <- srv.Run(ctx) }()
 	go func() {
@@ -35,17 +38,32 @@ func TestAuditGracefulShutdownWaitsForHandler(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("handler did not start")
 	}
-	cancel()
+
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), time.Second)
+	defer cancelShutdown()
+
+	shutdownDone := make(chan error, 1)
+	go func() { shutdownDone <- srv.Shutdown(shutdownCtx) }()
+
 	select {
 	case err := <-done:
 		t.Fatalf("Run returned before active handler completed: %v", err)
 	case <-time.After(100 * time.Millisecond):
 	}
+
 	close(release)
+
 	select {
-	case <-done:
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
 	case <-time.After(time.Second):
 		t.Fatal("Run did not finish")
+	}
+
+	if err := <-shutdownDone; err != nil {
+		t.Fatal(err)
 	}
 }
 
