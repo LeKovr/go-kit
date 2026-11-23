@@ -10,15 +10,17 @@ import (
 
 	"github.com/LeKovr/go-kit/config"
 	"github.com/LeKovr/go-kit/observability"
-	httpserver "github.com/LeKovr/go-kit/server/http"
+	"github.com/LeKovr/go-kit/server"
 	"github.com/LeKovr/go-kit/slogger"
+	httpserver "github.com/LeKovr/go-kit/transport/http"
 )
 
 // Config holds all config vars.
 type Config struct {
 	Mode string `long:"mode" default:"http-gateway" choice:"http-gateway" choice:"http-client" choice:"grpc-server" choice:"nats-worker" description:"Example mode: http-gateway, http-client, grpc-server or nats-worker" env:"MODE"`
 
-	Server        httpserver.Config    `group:"HTTP Options" namespace:"http" env-namespace:"HTTP"`
+	HTTP          httpserver.Config    `group:"HTTP Options" namespace:"http" env-namespace:"HTTP"`
+	Server        server.Config        `group:"Server Options" namespace:"server" env-namespace:"SERVER"`
 	GRPC          GRPCConfig           `group:"gRPC Options" namespace:"grpc" env-namespace:"GRPC"`
 	NATS          NATSConfig           `group:"NATS Options" namespace:"nats" env-namespace:"NATS"`
 	DB            DBConfig             `group:"Database Options" namespace:"db" env-namespace:"DB"`
