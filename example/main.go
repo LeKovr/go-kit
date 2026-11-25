@@ -10,9 +10,9 @@ import (
 	"github.com/LeKovr/go-kit/config"
 	"github.com/LeKovr/go-kit/observability"
 	"github.com/LeKovr/go-kit/server"
+	grpcserver "github.com/LeKovr/go-kit/server/grpc"
+	httpserver "github.com/LeKovr/go-kit/server/http"
 	"github.com/LeKovr/go-kit/slogger"
-	grpcserver "github.com/LeKovr/go-kit/transport/grpc"
-	httpserver "github.com/LeKovr/go-kit/transport/http"
 	"github.com/LeKovr/go-kit/ver"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
@@ -91,7 +91,7 @@ func Run(ctx context.Context, exitFunc func(code int)) {
 		err = errors.Join(err, obs.Shutdown(context.WithoutCancel(ctx)))
 	}()
 
-	/* go-kit/transport/http  */
+	/* go-kit/server/http  */
 
 	// static pages server
 	hfs := os.DirFS(cfg.Root)
@@ -103,7 +103,7 @@ func Run(ctx context.Context, exitFunc func(code int)) {
 		}
 	})
 
-	/* go-kit/transport/grpc  */
+	/* go-kit/server/grpc  */
 
 	grpcSrv := grpcserver.New(cfg.GRPC, grpc.StatsHandler(obs.GRPCServerHandler()))
 	healthSrv := health.NewServer()

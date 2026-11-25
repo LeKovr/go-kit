@@ -39,5 +39,5 @@ SIGINT/SIGTERM, отмена внешнего контекста, ошибка �
 `config.Open` задаёт `GracePeriod` по умолчанию `10s`; в ручном конфиге задайте его явно.
 БД и клиентов закрывайте после возврата `Run`.
 
-HTTP и gRPC реализованы в отдельных пакетах: [transport/http](../transport/http) и
-[transport/grpc](../transport/grpc). Их совместный запуск показан в [примере](../example).
+HTTP и gRPC реализованы в отдельных пакетах: [server/http](./http) и
+[server/grpc](./grpc). Их совместный запуск показан в [примере](../example).

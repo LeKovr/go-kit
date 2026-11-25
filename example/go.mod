@@ -7,8 +7,8 @@ require (
 	github.com/LeKovr/go-kit/observability v0.0.0
 	github.com/LeKovr/go-kit/server v0.0.0
 	github.com/LeKovr/go-kit/slogger v0.15.2
-	github.com/LeKovr/go-kit/transport/grpc v0.0.0
-	github.com/LeKovr/go-kit/transport/http v0.0.0
+	github.com/LeKovr/go-kit/server/grpc v0.0.0
+	github.com/LeKovr/go-kit/server/http v0.0.0
 	github.com/LeKovr/go-kit/ver v0.10.1
 	google.golang.org/grpc v1.83.1
 )
@@ -61,8 +61,8 @@ require (
 
 replace github.com/LeKovr/go-kit/server => ../server
 
-replace github.com/LeKovr/go-kit/transport/http => ../transport/http
+replace github.com/LeKovr/go-kit/server/http => ../server/http
 
-replace github.com/LeKovr/go-kit/transport/grpc => ../transport/grpc
+replace github.com/LeKovr/go-kit/server/grpc => ../server/grpc
 
 replace github.com/LeKovr/go-kit/observability => ../observability

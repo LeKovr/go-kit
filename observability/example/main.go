@@ -11,8 +11,8 @@ import (
 	"github.com/LeKovr/go-kit/config"
 	"github.com/LeKovr/go-kit/observability"
 	"github.com/LeKovr/go-kit/server"
+	httpserver "github.com/LeKovr/go-kit/server/http"
 	"github.com/LeKovr/go-kit/slogger"
-	httpserver "github.com/LeKovr/go-kit/transport/http"
 )
 
 // Config holds all config vars.

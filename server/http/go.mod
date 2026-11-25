@@ -1,4 +1,4 @@
-module github.com/LeKovr/go-kit/transport/http
+module github.com/LeKovr/go-kit/server/http
 
 go 1.25.0
 

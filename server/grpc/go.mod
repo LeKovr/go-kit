@@ -1,4 +1,4 @@
-module github.com/LeKovr/go-kit/transport/grpc
+module github.com/LeKovr/go-kit/server/grpc
 
 go 1.25.0
 

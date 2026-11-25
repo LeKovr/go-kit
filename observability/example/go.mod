@@ -7,8 +7,8 @@ require (
 	github.com/LeKovr/go-kit/observability v0.0.0
 	github.com/LeKovr/go-kit/server v0.0.0
 	github.com/LeKovr/go-kit/slogger v0.0.0
-	github.com/LeKovr/go-kit/transport/grpc v0.0.0
-	github.com/LeKovr/go-kit/transport/http v0.0.0
+	github.com/LeKovr/go-kit/server/grpc v0.0.0
+	github.com/LeKovr/go-kit/server/http v0.0.0
 	github.com/exaring/otelpgx v0.13.0
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/nats-io/nats-server/v2 v2.12.6
@@ -71,6 +71,6 @@ replace github.com/LeKovr/go-kit/server => ../../server
 
 replace github.com/LeKovr/go-kit/slogger => ../../slogger
 
-replace github.com/LeKovr/go-kit/transport/http => ../../transport/http
+replace github.com/LeKovr/go-kit/server/http => ../../server/http
 
-replace github.com/LeKovr/go-kit/transport/grpc => ../../transport/grpc
+replace github.com/LeKovr/go-kit/server/grpc => ../../server/grpc

@@ -8,7 +8,7 @@ use (
 	./observability/example
 	./server
 	./slogger
-	./transport/grpc
-	./transport/http
+	./server/grpc
+	./server/http
 	./ver
 )
