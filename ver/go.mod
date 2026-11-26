@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	github.com/LeKovr/go-kit/slogger v0.15.1
 	github.com/alecthomas/assert v1.0.0
-	golang.org/x/tools v0.45.0
+	golang.org/x/tools v0.48.0
 )
 
 require (
@@ -21,5 +21,5 @@ require (
 	go.opentelemetry.io/otel v1.44.0 // indirect
 	go.opentelemetry.io/otel/sdk v1.44.0 // indirect
 	go.opentelemetry.io/otel/trace v1.44.0 // indirect
-	golang.org/x/sys v0.46.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
 )
