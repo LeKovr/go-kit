@@ -2,7 +2,10 @@
 
 GO          ?= go
 
-.PHONY: all help lint vet test cov-html clean
+# Install: go install go.gitflic.ru/vinteo/pkg-changelog@latest
+PKG_CHANGELOG ?= pkg-changelog
+
+.PHONY: all help lint vet test cov-html clean changelog
 
 all: help
 
@@ -41,6 +44,10 @@ clean:
 # ------------------------------------------------------------------------------
 ## Other
 #:
+
+## update CHANGELOG.md from commits touching this package
+changelog:
+	"$(PKG_CHANGELOG)"
 
 # This code handles group header and target comment with one or two lines only
 ## list Makefile targets
