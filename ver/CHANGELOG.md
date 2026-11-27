@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.10.3] - 2026-11-27
+
+- upd: slogger 0.17.1 (2653902)
+- upd: goreportcard.com retired (5694f0d)
+- upd: bump deps (616557d)
+
 ## [0.10.2] - 2026-11-26
 
 - fix: security fixes (f505dc7)
