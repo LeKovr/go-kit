@@ -3,6 +3,8 @@
 ## [0.1.1] - 2026-11-27
 
 - upd: bump deps (ae9de9e)
+- upd: goreportcard.com retired (5694f0d)
+- add: Makefile (9ada444)
 
 ## [0.1.0] - 2026-11-26
 
