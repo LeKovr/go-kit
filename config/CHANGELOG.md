@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.6.3] - 2026-11-27
+
+- upd: bump deps (62a228b)
+
 ## [0.6.2] - 2026-11-26
 
 - fix: security (f505dc7)
