@@ -3,7 +3,7 @@ module github.com/LeKovr/go-kit/ver
 go 1.26.0
 
 require (
-	github.com/LeKovr/go-kit/slogger v0.17.0
+	github.com/LeKovr/go-kit/slogger v0.17.1
 	github.com/alecthomas/assert v1.0.0
 	golang.org/x/tools v0.49.0
 )
