@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.6.4] - 2026-11-27
+
+- upd: goreportcard.com retired (5694f0d)
+- upd: bump deps (62a228b)
+
 ## [0.6.3] - 2026-11-27
 
 - upd: bump deps (62a228b)
