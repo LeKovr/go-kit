@@ -34,7 +34,7 @@ require (
 	github.com/nats-io/nats.go v1.51.0 // indirect
 	github.com/nats-io/nkeys v0.4.16 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
-	github.com/remychantenay/slog-otel v1.3.0 // indirect
+	github.com/remychantenay/slog-otel v1.3.5 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.70.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/httptrace/otelhttptrace v0.69.0 // indirect

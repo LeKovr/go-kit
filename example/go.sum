@@ -69,8 +69,7 @@ github.com/nats-io/nkeys v0.4.16/go.mod h1:llLgWoI0o4z/Q57q2R1kHfmocyhGV6VG/U18G
 github.com/nats-io/nuid v1.0.1 h1:5iA8DT8V7q8WK2EScv2padNa/rTESc1KdnPw4TC2paw=
 github.com/nats-io/nuid v1.0.1/go.mod h1:19wcPz3Ph3q0Jbyiqsd0kePYG7A95tJPxeL+1OSON2c=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
-github.com/remychantenay/slog-otel v1.3.0 h1:mppL97agkmwR416lKzltRQ9QRhrPdxwVidt0AnI3Ts4=
-github.com/remychantenay/slog-otel v1.3.0/go.mod h1:L2VAe6WOMAk/kRzzuv2B/rWe/IDXAhUNae0919b4kHU=
+github.com/remychantenay/slog-otel v1.3.5 h1:VBxvLh6wJ+ioY9Lup66Bin8UWzRYdVYCDhr8cpBneM4=
 github.com/sergi/go-diff v1.2.0 h1:XU+rvMAioB0UC3q1MFrIQy4Vo5/4VsRDQQXHsEya6xQ=
 github.com/sergi/go-diff v1.2.0/go.mod h1:STckp+ISIX8hZLjrqAeVduY0gWCT9IjLuqbuNXdaHfM=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
