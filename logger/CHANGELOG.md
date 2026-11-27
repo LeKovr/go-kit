@@ -2,6 +2,7 @@
 
 ## [0.2.5] - 2026-11-27
 
+- upd: goreportcard.com retired (5694f0d)
 - upd: bump deps (19c2630)
 - fix: security fixes (f505dc7)
 
