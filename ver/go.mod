@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/LeKovr/go-kit/slogger v0.17.0
 	github.com/alecthomas/assert v1.0.0
-	golang.org/x/tools v0.48.0
+	golang.org/x/tools v0.49.0
 )
 
 require (
