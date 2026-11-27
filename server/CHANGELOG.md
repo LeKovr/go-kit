@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.18.0] - 2026-11-27
+
+- add: IsExpectedShutdown (6012f88)
+
 ## [0.17.1] - 2026-11-27
 
 - upd: goreportcard.com retired (5694f0d)
