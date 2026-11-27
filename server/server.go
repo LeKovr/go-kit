@@ -5,8 +5,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -147,4 +150,56 @@ func (srv *Service) Run(ctx context.Context, workers ...Worker) error {
 	wait(runDone)
 
 	return errors.Join(append(errs, deadlineErr)...)
+}
+
+// IsExpectedShutdown returns true if err is a normal shutdown error
+// (context cancellation, closed listener, server already stopped).
+func IsExpectedShutdown(err error) bool {
+	if err == nil {
+		return true
+	}
+
+	// Check joined errors (errors.Join).
+	type unwrapper interface {
+		Unwrap() []error
+	}
+	if u, ok := err.(unwrapper); ok {
+		for _, e := range u.Unwrap() {
+			if !IsExpectedShutdown(e) {
+				return false
+			}
+		}
+		return true
+	}
+
+	// Walk the error chain.
+	for {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return true
+		}
+
+		if errors.Is(err, net.ErrClosed) || errors.Is(err, http.ErrServerClosed) {
+			return true
+		}
+
+		// grpc.ErrServerStopped is not exported as a sentinel, check by string.
+		if strings.Contains(err.Error(), "gRPC serve: server stopped") {
+			return true
+		}
+
+		// cmux errors.
+		if strings.Contains(err.Error(), "use of closed network connection") {
+			return true
+		}
+
+		// Unwrap and continue.
+		if unwrapped := errors.Unwrap(err); unwrapped != nil {
+			err = unwrapped
+			continue
+		}
+
+		break
+	}
+
+	return false
 }
