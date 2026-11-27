@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.4.1] - 2026-11-27
+
+- upd: goreportcard.com retired (5694f0d)
+
 ## [0.4.0] - 2026-11-26
 
 - fix: security fixes (f505dc7)
