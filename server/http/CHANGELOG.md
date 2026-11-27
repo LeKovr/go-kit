@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.1.1] - 2026-11-27
+
+- add: Makefile, CHANGELOG.md (b08808a)
+
 ## [0.1.0] - 2026-11-26
 
 - fix: security fixes (f505dc7)
