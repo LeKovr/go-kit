@@ -2,6 +2,7 @@
 
 ## [0.1.1] - 2026-11-27
 
+- upd: goreportcard.com retired (5694f0d)
 - add: Makefile, CHANGELOG.md (b08808a)
 
 ## [0.1.0] - 2026-11-26
